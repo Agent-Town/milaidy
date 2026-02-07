@@ -155,7 +155,8 @@
   "overrides": {
     "qs": "6.14.1",
     "tough-cookie": "4.1.3",
-    "drizzle-orm": "0.45.1"
+    "drizzle-orm": "0.45.1",
+    "@elizaos/computeruse": "npm:@elizaos/core@next"
   },
   "engines": {
     "node": ">=22.12.0"
