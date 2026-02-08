@@ -659,6 +659,27 @@ function error(res: http.ServerResponse, message: string, status = 400): void {
   json(res, { error: message }, status);
 }
 
+function maskSecret(value: string): string {
+  const v = value.trim();
+  if (v.length <= 8) return "***";
+  return `${v.slice(0, 4)}…${v.slice(-4)}`;
+}
+
+function resolveConfiguredModelProvider(config: MilaidyConfig): {
+  openaiConfigured: boolean;
+  modelPrimary: string | null;
+} {
+  const env = (config.env as Record<string, string> | undefined) ?? undefined;
+  const openaiKey = env?.OPENAI_API_KEY ?? process.env.OPENAI_API_KEY;
+  const modelPrimary =
+    (config.agents?.defaults?.model as { primary?: string } | undefined)
+      ?.primary ?? null;
+  return {
+    openaiConfigured: Boolean(openaiKey?.trim()),
+    modelPrimary,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Onboarding helpers
 // ---------------------------------------------------------------------------
@@ -2197,6 +2218,131 @@ async function handleRequest(
   // ── GET /api/config ──────────────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/config") {
     json(res, state.config);
+    return;
+  }
+
+  // ── GET /api/settings/model-provider ─────────────────────────────────────
+  // Read current provider config (never returns secrets).
+  if (method === "GET" && pathname === "/api/settings/model-provider") {
+    const cfg = resolveConfiguredModelProvider(state.config);
+    json(res, {
+      provider: cfg.openaiConfigured ? "openai" : null,
+      openai: {
+        configured: cfg.openaiConfigured,
+      },
+      model: {
+        primary: cfg.modelPrimary,
+      },
+    });
+    return;
+  }
+
+  // ── POST /api/settings/model-provider ────────────────────────────────────
+  // Set provider API key + model, persist to config, and restart runtime.
+  if (method === "POST" && pathname === "/api/settings/model-provider") {
+    const body = await readJsonBody<{
+      provider?: string;
+      apiKey?: string;
+      modelPrimary?: string;
+      restart?: boolean;
+    }>(req, res);
+    if (!body) return;
+
+    const provider = (body.provider ?? "").trim();
+    if (provider !== "openai") {
+      error(res, "provider must be 'openai'", 400);
+      return;
+    }
+
+    const apiKey = (body.apiKey ?? "").trim();
+    if (!apiKey) {
+      error(res, "apiKey is required", 400);
+      return;
+    }
+    // Basic sanity check only. (Do not overfit prefixes; OpenAI keys can vary.)
+    if (apiKey.length < 20) {
+      error(res, "apiKey looks too short", 400);
+      return;
+    }
+
+    const modelPrimary = (body.modelPrimary ?? "gpt-5.3-codex").trim();
+    if (!modelPrimary) {
+      error(res, "modelPrimary is required", 400);
+      return;
+    }
+
+    // Persist into config.env and agents.defaults.model.primary
+    const config = state.config;
+    if (!config.env) config.env = {};
+    (config.env as Record<string, string>).OPENAI_API_KEY = apiKey;
+    process.env.OPENAI_API_KEY = apiKey;
+
+    if (!config.agents) config.agents = {};
+    if (!config.agents.defaults) config.agents.defaults = {};
+    if (!config.agents.defaults.model) config.agents.defaults.model = {} as any;
+    (config.agents.defaults.model as any).primary = modelPrimary;
+
+    state.config = config;
+    try {
+      saveMilaidyConfig(state.config);
+    } catch {
+      // In test environments the config path may not be writable.
+    }
+
+    addLog(
+      "info",
+      `[settings] Updated OpenAI key (${maskSecret(apiKey)}) + model.primary=${modelPrimary}`,
+      "settings",
+    );
+
+    const shouldRestart = body.restart !== false;
+    if (!shouldRestart) {
+      json(res, { ok: true, restart: "skipped" });
+      return;
+    }
+
+    // Restart runtime if possible
+    if (!ctx.onRestart) {
+      json(res, { ok: true, restart: "unavailable" });
+      return;
+    }
+
+    if (state.agentState === "restarting") {
+      error(res, "A restart is already in progress", 409);
+      return;
+    }
+
+    const previousState = state.agentState;
+    state.agentState = "restarting";
+    try {
+      const newRuntime = await ctx.onRestart();
+      if (newRuntime) {
+        state.runtime = newRuntime;
+        state.agentState = "running";
+        state.agentName = newRuntime.character.name ?? "Milaidy";
+        state.startedAt = Date.now();
+        json(res, {
+          ok: true,
+          restart: "done",
+          status: {
+            state: state.agentState,
+            agentName: state.agentName,
+            startedAt: state.startedAt,
+          },
+        });
+      } else {
+        state.agentState = previousState;
+        error(
+          res,
+          "Restart handler returned null — runtime failed to re-initialize",
+          500,
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      state.agentState = previousState;
+      error(res, `Restart failed: ${msg}`, 500);
+    }
     return;
   }
 
