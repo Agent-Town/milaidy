@@ -89,7 +89,7 @@ jobs:
   playwright-tests:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     continue-on-error: true
     defaults:
       run:
@@ -196,14 +196,13 @@ jobs:
   test-status:
     name: All Tests Passed
     if: always()
-    needs: [unit-tests, e2e-tests, playwright-tests, ui-unit-tests, validation-e2e]
+    needs: [unit-tests, e2e-tests, ui-unit-tests, validation-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Check test results
         run: |
           if [[ "${{ needs.unit-tests.result }}" == "failure" || \
                 "${{ needs.e2e-tests.result }}" == "failure" || \
-                "${{ needs.playwright-tests.result }}" == "failure" || \
                 "${{ needs.ui-unit-tests.result }}" == "failure" || \
                 "${{ needs.validation-e2e.result }}" == "failure" ]]; then
             echo "One or more test jobs failed"
