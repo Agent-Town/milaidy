@@ -365,14 +365,15 @@ export const CUSTOM_PLUGINS_DIRNAME = "plugins/custom";
  *
  * Returns a map of plugin name → synthetic {@link PluginInstallRecord}
  * that the existing {@link importFromPath} loading pipeline can consume.
+ *
+ * @internal Exported for CLI `milaidy plugins test` command.
  */
-/** @internal Exported for CLI `milaidy plugins test` command. */
 export async function scanDropInPlugins(
   dir: string,
 ): Promise<Record<string, PluginInstallRecord>> {
   const records: Record<string, PluginInstallRecord> = {};
 
-  let entries: Awaited<ReturnType<typeof fs.readdir>>;
+  let entries;
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -383,22 +384,16 @@ export async function scanDropInPlugins(
     if (!entry.isDirectory()) continue;
 
     const pluginDir = path.join(dir, entry.name);
-    const pkgJsonPath = path.join(pluginDir, "package.json");
-
     let pluginName = entry.name;
     let version = "0.0.0";
 
     try {
-      const raw = await fs.readFile(pkgJsonPath, "utf-8");
+      const raw = await fs.readFile(path.join(pluginDir, "package.json"), "utf-8");
       const pkg = JSON.parse(raw) as { name?: string; version?: string };
-      if (typeof pkg.name === "string" && pkg.name.trim()) {
-        pluginName = pkg.name.trim();
-      }
-      if (typeof pkg.version === "string" && pkg.version.trim()) {
-        version = pkg.version.trim();
-      }
+      if (typeof pkg.name === "string" && pkg.name.trim()) pluginName = pkg.name.trim();
+      if (typeof pkg.version === "string" && pkg.version.trim()) version = pkg.version.trim();
     } catch {
-      // No package.json — use directory name as identifier.
+      // No package.json — directory name is the identifier.
     }
 
     records[pluginName] = { source: "path", installPath: pluginDir, version };
@@ -443,30 +438,28 @@ async function resolvePlugins(
   };
 
   // ── Auto-discover drop-in custom plugins ────────────────────────────────
-  const customPluginsDir = path.join(resolveStateDir(), CUSTOM_PLUGINS_DIRNAME);
-  const allDropInRecords: Record<string, PluginInstallRecord> = {};
-
-  const customDirRecords = await scanDropInPlugins(customPluginsDir);
-  Object.assign(allDropInRecords, customDirRecords);
-
-  for (const extraPath of config.plugins?.load?.paths ?? []) {
-    const resolved = resolveUserPath(extraPath);
-    const extraRecords = await scanDropInPlugins(resolved);
-    for (const [name, record] of Object.entries(extraRecords)) {
-      if (!allDropInRecords[name]) allDropInRecords[name] = record;
+  // Scan well-known dir + any extra dirs from plugins.load.paths (first wins).
+  const scanDirs = [
+    path.join(resolveStateDir(), CUSTOM_PLUGINS_DIRNAME),
+    ...(config.plugins?.load?.paths ?? []).map(resolveUserPath),
+  ];
+  const dropInRecords: Record<string, PluginInstallRecord> = {};
+  for (const dir of scanDirs) {
+    for (const [name, record] of Object.entries(await scanDropInPlugins(dir))) {
+      if (!dropInRecords[name]) dropInRecords[name] = record;
     }
   }
 
+  // Merge into load set — deny list and core collisions are filtered out.
   const denySet = new Set(config.plugins?.deny ?? []);
   const customPluginNames: string[] = [];
 
-  for (const [name, record] of Object.entries(allDropInRecords)) {
-    if (denySet.has(name)) continue;
+  for (const [name, record] of Object.entries(dropInRecords)) {
+    if (denySet.has(name) || installRecords[name]) continue;
     if (corePluginSet.has(name)) {
       logger.warn(`[milaidy] Custom plugin "${name}" collides with core plugin — skipping`);
       continue;
     }
-    if (installRecords[name]) continue;
     pluginsToLoad.add(name);
     installRecords[name] = record;
     customPluginNames.push(name);

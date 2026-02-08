@@ -350,76 +350,175 @@ export function registerPluginsCli(program: Command): void {
   // ── test ─────────────────────────────────────────────────────────────
   pluginsCommand
     .command("test")
-    .description("Validate custom drop-in plugins in ~/.milaidy/plugins/custom/")
+    .description(
+      "Validate custom drop-in plugins in ~/.milaidy/plugins/custom/",
+    )
     .action(async () => {
       const nodePath = await import("node:path");
       const { pathToFileURL } = await import("node:url");
       const fsPromises = await import("node:fs/promises");
-      const { resolveStateDir, resolveUserPath } = await import("../config/paths.js");
+      const { resolveStateDir, resolveUserPath } = await import(
+        "../config/paths.js"
+      );
       const { loadMilaidyConfig } = await import("../config/config.js");
-      const { CUSTOM_PLUGINS_DIRNAME, scanDropInPlugins, resolvePackageEntry } = await import("../runtime/eliza.js");
+      const {
+        CUSTOM_PLUGINS_DIRNAME,
+        scanDropInPlugins,
+        resolvePackageEntry,
+      } = await import("../runtime/eliza.js");
 
-      const customDir = nodePath.join(resolveStateDir(), CUSTOM_PLUGINS_DIRNAME);
-      console.log(`\n${chalk.bold("Custom plugins directory:")} ${chalk.dim(customDir)}\n`);
+      // Build list of directories to scan: well-known + config extras
+      const customDir = nodePath.join(
+        resolveStateDir(),
+        CUSTOM_PLUGINS_DIRNAME,
+      );
+      const scanDirs = [customDir];
 
-      const dirsToScan: Array<{ label: string; dir: string }> = [{ label: "custom", dir: customDir }];
       let config: ReturnType<typeof loadMilaidyConfig> | null = null;
-      try { config = loadMilaidyConfig(); } catch { /* no config */ }
-      for (const p of config?.plugins?.load?.paths ?? []) dirsToScan.push({ label: p, dir: resolveUserPath(p) });
+      try {
+        config = loadMilaidyConfig();
+      } catch {
+        // No config file — only scan the default custom directory.
+      }
+      for (const p of config?.plugins?.load?.paths ?? []) {
+        scanDirs.push(resolveUserPath(p));
+      }
 
-      const allRecords: Array<{ name: string; installPath: string; version: string }> = [];
-      for (const { label, dir } of dirsToScan) {
+      console.log(
+        `\n${chalk.bold("Custom plugins directory:")} ${chalk.dim(customDir)}\n`,
+      );
+
+      // Discover candidates from all directories
+      const candidates: Array<{
+        name: string;
+        installPath: string;
+        version: string;
+      }> = [];
+
+      for (const dir of scanDirs) {
         const records = await scanDropInPlugins(dir);
-        if (Object.keys(records).length > 0 && dirsToScan.length > 1) console.log(chalk.dim(`  Scanning ${label}...`));
         for (const [name, record] of Object.entries(records)) {
-          allRecords.push({ name, installPath: record.installPath ?? dir, version: record.version ?? "0.0.0" });
+          candidates.push({
+            name,
+            installPath: record.installPath ?? dir,
+            version: record.version ?? "0.0.0",
+          });
         }
       }
 
-      if (allRecords.length === 0) {
+      if (candidates.length === 0) {
         console.log("  No custom plugins found.\n");
-        console.log(chalk.dim(`  Drop a plugin directory into ${customDir} and run this command again.\n`));
+        console.log(
+          chalk.dim(
+            `  Drop a plugin directory into ${customDir} and run this command again.\n`,
+          ),
+        );
         return;
       }
 
-      console.log(`${chalk.bold(`Found ${allRecords.length} custom plugin(s):`)}\n`);
+      console.log(
+        `${chalk.bold(`Found ${candidates.length} custom plugin(s):`)}\n`,
+      );
+
       let validCount = 0;
       let failedCount = 0;
 
-      for (const candidate of allRecords) {
-        const ver = candidate.version !== "0.0.0" ? chalk.dim(` v${candidate.version}`) : "";
+      const fail = (msg: string) => {
+        console.log(`    ${chalk.red("✗")} ${msg}`);
+        failedCount++;
+        console.log();
+      };
+
+      for (const candidate of candidates) {
+        const ver =
+          candidate.version !== "0.0.0"
+            ? chalk.dim(` v${candidate.version}`)
+            : "";
         console.log(`  ${chalk.cyan(candidate.name)}${ver}`);
         console.log(`    ${chalk.dim("Path:")} ${candidate.installPath}`);
 
+        // 1. Resolve entry point from package.json
         let entryPoint: string;
-        try { entryPoint = await resolvePackageEntry(candidate.installPath); }
-        catch (err) { console.log(`    ${chalk.red("✗ Entry point failed:")} ${err instanceof Error ? err.message : String(err)}`); failedCount++; console.log(); continue; }
-        console.log(`    ${chalk.dim("Entry:")} ${nodePath.relative(candidate.installPath, entryPoint)}`);
+        try {
+          entryPoint = await resolvePackageEntry(candidate.installPath);
+        } catch (err) {
+          fail(
+            `Entry point failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
 
-        try { await fsPromises.access(entryPoint); }
-        catch { console.log(`    ${chalk.red("✗ File not found:")} ${entryPoint}`); failedCount++; console.log(); continue; }
+        console.log(
+          `    ${chalk.dim("Entry:")} ${nodePath.relative(candidate.installPath, entryPoint)}`,
+        );
 
+        // 2. Verify entry point file exists on disk
+        try {
+          await fsPromises.access(entryPoint);
+        } catch {
+          fail(`File not found: ${entryPoint}`);
+          continue;
+        }
+
+        // 3. Trial import
         let mod: Record<string, unknown>;
-        try { mod = (await import(pathToFileURL(entryPoint).href)) as Record<string, unknown>; }
-        catch (err) { console.log(`    ${chalk.red("✗ Import failed:")} ${err instanceof Error ? err.message : String(err)}`); failedCount++; console.log(); continue; }
+        try {
+          mod = (await import(
+            pathToFileURL(entryPoint).href
+          )) as Record<string, unknown>;
+        } catch (err) {
+          fail(
+            `Import failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
 
-        const isPlugin = (v: unknown): v is { name: string; description: string } =>
-          v !== null && typeof v === "object" && typeof (v as Record<string, unknown>).name === "string" && typeof (v as Record<string, unknown>).description === "string";
-        const found = isPlugin(mod.default) ? mod.default : isPlugin(mod.plugin) ? mod.plugin : isPlugin(mod) ? mod : Object.values(mod).find(isPlugin);
-
-        if (found && isPlugin(found)) {
-          console.log(`    ${chalk.green("✓ Valid plugin")} — ${found.name}: ${chalk.dim(found.description)}`);
+        // 4. Check for valid Plugin shape (name + description)
+        const plugin = findPluginExport(mod);
+        if (plugin) {
+          console.log(
+            `    ${chalk.green("✓ Valid plugin")} — ${plugin.name}: ${chalk.dim(plugin.description)}`,
+          );
           validCount++;
         } else {
-          console.log(`    ${chalk.red("✗ No valid Plugin export")} — needs { name: string, description: string }`);
-          failedCount++;
+          fail(
+            "No valid Plugin export — needs { name: string, description: string }",
+          );
+          continue;
         }
         console.log();
       }
 
+      // Summary
       const parts: string[] = [];
       if (validCount > 0) parts.push(chalk.green(`${validCount} valid`));
       if (failedCount > 0) parts.push(chalk.red(`${failedCount} failed`));
-      console.log(`  ${chalk.bold("Summary:")} ${parts.join(", ")} out of ${allRecords.length}\n`);
+      console.log(
+        `  ${chalk.bold("Summary:")} ${parts.join(", ")} out of ${candidates.length}\n`,
+      );
     });
+}
+
+/**
+ * Check a module's exports for a value that looks like an ElizaOS Plugin
+ * (an object with `name: string` and `description: string`).
+ */
+function findPluginExport(
+  mod: Record<string, unknown>,
+): { name: string; description: string } | null {
+  const isPlugin = (
+    v: unknown,
+  ): v is { name: string; description: string } =>
+    v !== null &&
+    typeof v === "object" &&
+    typeof (v as Record<string, unknown>).name === "string" &&
+    typeof (v as Record<string, unknown>).description === "string";
+
+  if (isPlugin(mod.default)) return mod.default;
+  if (isPlugin(mod.plugin)) return mod.plugin;
+  if (isPlugin(mod)) return mod as { name: string; description: string };
+  for (const value of Object.values(mod)) {
+    if (isPlugin(value)) return value;
+  }
+  return null;
 }
