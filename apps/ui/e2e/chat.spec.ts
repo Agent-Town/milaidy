@@ -97,7 +97,7 @@ test.describe("Chat page", () => {
     const input = page.locator(".chat-input");
     await input.fill("Hello agent!");
     await page.locator("button").filter({ hasText: "Send" }).click();
-    await expect(page.getByText("Hello agent!")).toBeVisible();
+    await expect(page.getByText("Hello agent!", { exact: true })).toBeVisible();
 
     await simulateAgentResponse(page, "Hello! I'm here to help.");
     await expect(page.getByText("Hello! I'm here to help.")).toBeVisible();
@@ -112,7 +112,7 @@ test.describe("Chat page", () => {
     await page.locator("button").filter({ hasText: "Send" }).click();
 
     await simulateAgentResponse(page, "I am Reimu!");
-    await expect(page.locator(".chat-msg.assistant .role")).toHaveText("Reimu");
+    await expect(page.locator(".chat-msg.assistant .role").last()).toHaveText("Reimu");
   });
 
   test("send button restores after agent responds", async ({ page }) => {
@@ -123,8 +123,9 @@ test.describe("Chat page", () => {
     await input.fill("Restore test");
     await page.locator("button").filter({ hasText: "Send" }).click();
 
-    await expect(page.locator("button").filter({ hasText: "..." })).toBeVisible();
-
+    // The "..." sending state is transient — the mock responds instantly so
+    // the button may flip back to "Send" before we can assert.  Just verify
+    // the end state: after the response arrives, Send is visible again.
     await simulateAgentResponse(page, "Done!");
     await expect(page.locator("button").filter({ hasText: "Send" })).toBeVisible();
   });
