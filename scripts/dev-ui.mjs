@@ -63,8 +63,12 @@ function createErrorFilter(dest) {
     const lines = buf.split("\n");
     buf = lines.pop(); // keep incomplete last line in buffer
     for (const line of lines) {
-      if (line.trim() && !SUPPRESS_RE.test(line) && !SUPPRESS_UNSTRUCTURED_RE.test(line)) {
-        dest.write(line + "\n");
+      if (
+        line.trim() &&
+        !SUPPRESS_RE.test(line) &&
+        !SUPPRESS_UNSTRUCTURED_RE.test(line)
+      ) {
+        dest.write(`${line}\n`);
       }
     }
   };
@@ -163,7 +167,7 @@ function startVite() {
   const viteCmd = hasBun ? "bunx" : "npx";
   viteProcess = spawn(viteCmd, ["vite", "--port", String(UI_PORT)], {
     cwd: path.join(cwd, "apps/ui"),
-    env: process.env,
+    env: { ...process.env, MILAIDY_API_PORT: String(API_PORT) },
     stdio: ["inherit", "pipe", "pipe"],
   });
 

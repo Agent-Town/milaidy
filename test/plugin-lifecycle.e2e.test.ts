@@ -129,14 +129,18 @@ describe("Plugin Lifecycle E2E", () => {
       const unconfiguredProviders = plugins.filter(
         (p) =>
           p.category === "ai-provider" &&
-          (p.parameters as Array<Record<string, unknown>>).some((pr) => pr.required && !pr.isSet) &&
+          (p.parameters as Array<Record<string, unknown>>).some(
+            (pr) => pr.required && !pr.isSet,
+          ) &&
           (p.validationErrors as Array<unknown>).length > 0,
       );
       // At least some providers should be unconfigured in test env
       // (unless all keys happen to be set)
       if (unconfiguredProviders.length > 0) {
         for (const p of unconfiguredProviders) {
-          expect((p.validationErrors as Array<unknown>).length).toBeGreaterThan(0);
+          expect((p.validationErrors as Array<unknown>).length).toBeGreaterThan(
+            0,
+          );
         }
       }
     });
@@ -148,52 +152,85 @@ describe("Plugin Lifecycle E2E", () => {
 
   describe("enable/disable", () => {
     it("returns 404 for unknown plugin", async () => {
-      const { status } = await http$(server.port, "PUT", "/api/plugins/nonexistent-xyz", {
-        enabled: true,
-      });
+      const { status } = await http$(
+        server.port,
+        "PUT",
+        "/api/plugins/nonexistent-xyz",
+        {
+          enabled: true,
+        },
+      );
       expect(status).toBe(404);
     });
 
     it("can disable a plugin", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       if (plugins.length === 0) return;
 
       const target = plugins[0];
-      const { status, data } = await http$(server.port, "PUT", `/api/plugins/${target.id}`, {
-        enabled: false,
-      });
+      const { status, data } = await http$(
+        server.port,
+        "PUT",
+        `/api/plugins/${target.id}`,
+        {
+          enabled: false,
+        },
+      );
       expect(status).toBe(200);
       expect(data.ok).toBe(true);
       expect((data.plugin as Record<string, unknown>).enabled).toBe(false);
     });
 
     it("disabled plugin shows enabled=false in list", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       if (plugins.length === 0) return;
 
       const target = plugins[0];
-      await http$(server.port, "PUT", `/api/plugins/${target.id}`, { enabled: false });
+      await http$(server.port, "PUT", `/api/plugins/${target.id}`, {
+        enabled: false,
+      });
 
-      const { data: updatedList } = await http$(server.port, "GET", "/api/plugins");
-      const updated = (updatedList.plugins as Array<Record<string, unknown>>).find(
-        (p) => p.id === target.id,
+      const { data: updatedList } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
+      const updated = (
+        updatedList.plugins as Array<Record<string, unknown>>
+      ).find((p) => p.id === target.id);
       expect(updated?.enabled).toBe(false);
     });
 
     it("can re-enable a plugin with no validation errors", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       const noErrors = plugins.find(
         (p) => (p.validationErrors as Array<unknown>).length === 0,
       );
       if (!noErrors) return;
 
-      const { status, data } = await http$(server.port, "PUT", `/api/plugins/${noErrors.id}`, {
-        enabled: true,
-      });
+      const { status, data } = await http$(
+        server.port,
+        "PUT",
+        `/api/plugins/${noErrors.id}`,
+        {
+          enabled: true,
+        },
+      );
       expect(status).toBe(200);
       expect((data.plugin as Record<string, unknown>).enabled).toBe(true);
     });
@@ -205,84 +242,119 @@ describe("Plugin Lifecycle E2E", () => {
 
   describe("configuration & validation", () => {
     it("rejects empty config value for required param with 422", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       const provider = plugins.find(
         (p) =>
           p.category === "ai-provider" &&
-          (p.parameters as Array<Record<string, unknown>>).some((pr) => pr.required === true),
+          (p.parameters as Array<Record<string, unknown>>).some(
+            (pr) => pr.required === true,
+          ),
       );
       if (!provider) return;
 
-      const requiredParam = (provider.parameters as Array<Record<string, unknown>>).find(
-        (pr) => pr.required === true,
-      );
+      const requiredParam = (
+        provider.parameters as Array<Record<string, unknown>>
+      ).find((pr) => pr.required === true);
       if (!requiredParam) return;
 
       const { status, data } = await http$(
-        server.port, "PUT", `/api/plugins/${provider.id}`,
+        server.port,
+        "PUT",
+        `/api/plugins/${provider.id}`,
         { config: { [requiredParam.key as string]: "" } },
       );
       expect(status).toBe(422);
       expect(data.ok).toBe(false);
-      expect((data.validationErrors as Array<unknown>).length).toBeGreaterThan(0);
+      expect((data.validationErrors as Array<unknown>).length).toBeGreaterThan(
+        0,
+      );
     });
 
     it("accepts valid config value", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       const provider = plugins.find(
         (p) =>
           p.category === "ai-provider" &&
-          (p.parameters as Array<Record<string, unknown>>).some((pr) => pr.required === true),
+          (p.parameters as Array<Record<string, unknown>>).some(
+            (pr) => pr.required === true,
+          ),
       );
       if (!provider) return;
 
       // Set ALL required params to valid values
-      const requiredParams = (provider.parameters as Array<Record<string, unknown>>).filter(
-        (pr) => pr.required === true,
-      );
+      const requiredParams = (
+        provider.parameters as Array<Record<string, unknown>>
+      ).filter((pr) => pr.required === true);
       const config: Record<string, string> = {};
       for (const param of requiredParams) {
         config[param.key as string] = "sk-ant-test-1234567890abcdefghij";
       }
 
       const { status, data } = await http$(
-        server.port, "PUT", `/api/plugins/${provider.id}`, { config },
+        server.port,
+        "PUT",
+        `/api/plugins/${provider.id}`,
+        { config },
       );
       expect(status).toBe(200);
       expect(data.ok).toBe(true);
     });
 
     it("validation errors clear after setting all required params", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       const provider = plugins.find(
         (p) =>
           p.category === "ai-provider" &&
-          (p.parameters as Array<Record<string, unknown>>).some((pr) => pr.required === true),
+          (p.parameters as Array<Record<string, unknown>>).some(
+            (pr) => pr.required === true,
+          ),
       );
       if (!provider) return;
 
-      const requiredParams = (provider.parameters as Array<Record<string, unknown>>).filter(
-        (pr) => pr.required === true,
-      );
+      const requiredParams = (
+        provider.parameters as Array<Record<string, unknown>>
+      ).filter((pr) => pr.required === true);
       const config: Record<string, string> = {};
       for (const param of requiredParams) {
         config[param.key as string] = "test-value-1234567890abcdefghij";
       }
 
-      await http$(server.port, "PUT", `/api/plugins/${provider.id}`, { config });
+      await http$(server.port, "PUT", `/api/plugins/${provider.id}`, {
+        config,
+      });
 
-      const { data: afterData } = await http$(server.port, "GET", "/api/plugins");
-      const updated = (afterData.plugins as Array<Record<string, unknown>>).find(
-        (p) => p.id === provider.id,
+      const { data: afterData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
+      const updated = (
+        afterData.plugins as Array<Record<string, unknown>>
+      ).find((p) => p.id === provider.id);
       expect((updated?.validationErrors as Array<unknown>).length).toBe(0);
     });
 
     it("non-sensitive param currentValue updates after save", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
       const withNonSensitive = plugins.find((p) =>
         (p.parameters as Array<Record<string, unknown>>).some(
@@ -291,7 +363,9 @@ describe("Plugin Lifecycle E2E", () => {
       );
       if (!withNonSensitive) return;
 
-      const allParams = withNonSensitive.parameters as Array<Record<string, unknown>>;
+      const allParams = withNonSensitive.parameters as Array<
+        Record<string, unknown>
+      >;
       const targetParam = allParams.find(
         (pr) => pr.required === true && pr.sensitive === false,
       );
@@ -302,22 +376,32 @@ describe("Plugin Lifecycle E2E", () => {
       const testValue = "lifecycle-test-value-12345";
       for (const pr of allParams) {
         if (pr.required) {
-          config[pr.key as string] = pr.key === targetParam.key
-            ? testValue
-            : "placeholder-required-value-12345";
+          config[pr.key as string] =
+            pr.key === targetParam.key
+              ? testValue
+              : "placeholder-required-value-12345";
         }
       }
 
-      const { status } = await http$(server.port, "PUT", `/api/plugins/${withNonSensitive.id}`, { config });
+      const { status } = await http$(
+        server.port,
+        "PUT",
+        `/api/plugins/${withNonSensitive.id}`,
+        { config },
+      );
       expect(status).toBe(200);
 
-      const { data: afterData } = await http$(server.port, "GET", "/api/plugins");
-      const updated = (afterData.plugins as Array<Record<string, unknown>>).find(
-        (p) => p.id === withNonSensitive.id,
+      const { data: afterData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
-      const updatedParam = (updated?.parameters as Array<Record<string, unknown>>).find(
-        (pr) => pr.key === targetParam.key,
-      );
+      const updated = (
+        afterData.plugins as Array<Record<string, unknown>>
+      ).find((p) => p.id === withNonSensitive.id);
+      const updatedParam = (
+        updated?.parameters as Array<Record<string, unknown>>
+      ).find((pr) => pr.key === targetParam.key);
       expect(updatedParam?.isSet).toBe(true);
       expect(updatedParam?.currentValue).toBe(testValue);
     });
@@ -329,7 +413,11 @@ describe("Plugin Lifecycle E2E", () => {
 
   describe("full lifecycle", () => {
     it("configure → enable → disable round-trip", async () => {
-      const { data: listData } = await http$(server.port, "GET", "/api/plugins");
+      const { data: listData } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
+      );
       const plugins = listData.plugins as Array<Record<string, unknown>>;
 
       // Find a plugin that needs configuration
@@ -339,59 +427,86 @@ describe("Plugin Lifecycle E2E", () => {
 
       if (needsConfig) {
         // Set all required params
-        const requiredParams = (needsConfig.parameters as Array<Record<string, unknown>>).filter(
-          (pr) => pr.required === true,
-        );
+        const requiredParams = (
+          needsConfig.parameters as Array<Record<string, unknown>>
+        ).filter((pr) => pr.required === true);
         const config: Record<string, string> = {};
         for (const param of requiredParams) {
           config[param.key as string] = "lifecycle-roundtrip-1234567890";
         }
         const { status: configStatus } = await http$(
-          server.port, "PUT", `/api/plugins/${needsConfig.id}`, { config },
+          server.port,
+          "PUT",
+          `/api/plugins/${needsConfig.id}`,
+          { config },
         );
         expect(configStatus).toBe(200);
 
         // Verify validation cleared
-        const { data: afterConfig } = await http$(server.port, "GET", "/api/plugins");
-        const configured = (afterConfig.plugins as Array<Record<string, unknown>>).find(
-          (p) => p.id === needsConfig.id,
+        const { data: afterConfig } = await http$(
+          server.port,
+          "GET",
+          "/api/plugins",
         );
+        const configured = (
+          afterConfig.plugins as Array<Record<string, unknown>>
+        ).find((p) => p.id === needsConfig.id);
         expect((configured?.validationErrors as Array<unknown>).length).toBe(0);
       }
 
       // Find any valid plugin for enable/disable
-      const { data: freshList } = await http$(server.port, "GET", "/api/plugins");
-      const available = (freshList.plugins as Array<Record<string, unknown>>).find(
-        (p) => (p.validationErrors as Array<unknown>).length === 0,
+      const { data: freshList } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
+      const available = (
+        freshList.plugins as Array<Record<string, unknown>>
+      ).find((p) => (p.validationErrors as Array<unknown>).length === 0);
       if (!available) return;
 
       // Enable
       const { status: enableStatus, data: enableData } = await http$(
-        server.port, "PUT", `/api/plugins/${available.id}`, { enabled: true },
+        server.port,
+        "PUT",
+        `/api/plugins/${available.id}`,
+        { enabled: true },
       );
       expect(enableStatus).toBe(200);
       expect((enableData.plugin as Record<string, unknown>).enabled).toBe(true);
 
       // Verify enabled in list
-      const { data: enabledList } = await http$(server.port, "GET", "/api/plugins");
-      const enabledPlugin = (enabledList.plugins as Array<Record<string, unknown>>).find(
-        (p) => p.id === available.id,
+      const { data: enabledList } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
+      const enabledPlugin = (
+        enabledList.plugins as Array<Record<string, unknown>>
+      ).find((p) => p.id === available.id);
       expect(enabledPlugin?.enabled).toBe(true);
 
       // Disable
       const { status: disableStatus, data: disableData } = await http$(
-        server.port, "PUT", `/api/plugins/${available.id}`, { enabled: false },
+        server.port,
+        "PUT",
+        `/api/plugins/${available.id}`,
+        { enabled: false },
       );
       expect(disableStatus).toBe(200);
-      expect((disableData.plugin as Record<string, unknown>).enabled).toBe(false);
+      expect((disableData.plugin as Record<string, unknown>).enabled).toBe(
+        false,
+      );
 
       // Verify disabled in list
-      const { data: disabledList } = await http$(server.port, "GET", "/api/plugins");
-      const disabledPlugin = (disabledList.plugins as Array<Record<string, unknown>>).find(
-        (p) => p.id === available.id,
+      const { data: disabledList } = await http$(
+        server.port,
+        "GET",
+        "/api/plugins",
       );
+      const disabledPlugin = (
+        disabledList.plugins as Array<Record<string, unknown>>
+      ).find((p) => p.id === available.id);
       expect(disabledPlugin?.enabled).toBe(false);
     });
   });
@@ -403,7 +518,11 @@ describe("Plugin Lifecycle E2E", () => {
   describe("agent restart", () => {
     it("POST /api/agent/restart returns 501 when no restart handler", async () => {
       // In standalone mode (no runtime, no onRestart), restart should return 501
-      const { status, data } = await http$(server.port, "POST", "/api/agent/restart");
+      const { status, data } = await http$(
+        server.port,
+        "POST",
+        "/api/agent/restart",
+      );
       expect(status).toBe(501);
       expect(typeof data.error).toBe("string");
     });

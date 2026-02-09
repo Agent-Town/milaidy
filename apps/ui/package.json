@@ -8,7 +8,9 @@
     "preview": "vite preview",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:live:ui": "playwright test --config playwright.live.config.ts --ui"
   },
   "dependencies": {
     "@noble/ed25519": "3.0.0",

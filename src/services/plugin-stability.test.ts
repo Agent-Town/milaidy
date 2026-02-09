@@ -31,7 +31,7 @@ import { createMilaidyPlugin } from "../runtime/milaidy-plugin.js";
 // Constants — Full plugin enumeration
 // ---------------------------------------------------------------------------
 
-/** Core plugins that are always loaded. */
+/** Core plugins that are always loaded (must match CORE_PLUGINS in eliza.ts). */
 const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-sql",
   "@elizaos/plugin-local-embedding",
@@ -44,7 +44,7 @@ const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-experience",
   "@elizaos/plugin-plugin-manager",
   "@elizaos/plugin-cli",
-  "@elizaos/plugin-code",
+  // "@elizaos/plugin-code", // disabled: Provider spec mismatch (coderStatusProvider)
   "@elizaos/plugin-edge-tts",
   "@elizaos/plugin-knowledge",
   "@elizaos/plugin-mcp",
@@ -53,9 +53,9 @@ const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-secrets-manager",
   "@elizaos/plugin-todo",
   "@elizaos/plugin-trust",
-  "@elizaos/plugin-form",
-  "@elizaos/plugin-goals",
-  "@elizaos/plugin-scheduling",
+  // "@elizaos/plugin-form", // disabled: npm package missing compiled dist/index.js
+  // "@elizaos/plugin-goals", // disabled: Action spec mismatch (CANCEL_GOAL)
+  // "@elizaos/plugin-scheduling", // disabled: npm package missing compiled dist/index.js
 ];
 
 /** Channel plugins (loaded when channel config is present). */
@@ -76,6 +76,8 @@ const CHANNEL_PLUGINS: Record<string, string> = {
 const PROVIDER_PLUGINS: Record<string, string> = {
   ANTHROPIC_API_KEY: "@elizaos/plugin-anthropic",
   OPENAI_API_KEY: "@elizaos/plugin-openai",
+  AI_GATEWAY_API_KEY: "@elizaos/plugin-vercel-ai-gateway",
+  AIGATEWAY_API_KEY: "@elizaos/plugin-vercel-ai-gateway",
   GOOGLE_API_KEY: "@elizaos/plugin-google-genai",
   GOOGLE_GENERATIVE_AI_API_KEY: "@elizaos/plugin-google-genai",
   GROQ_API_KEY: "@elizaos/plugin-groq",
@@ -107,6 +109,8 @@ const envKeysToClean = [
   "GROQ_API_KEY",
   "XAI_API_KEY",
   "OPENROUTER_API_KEY",
+  "AI_GATEWAY_API_KEY",
+  "AIGATEWAY_API_KEY",
   "OLLAMA_BASE_URL",
   "ELIZAOS_CLOUD_API_KEY",
   "ELIZAOS_CLOUD_ENABLED",
@@ -123,7 +127,7 @@ const envKeysToClean = [
 
 describe("Plugin Enumeration", () => {
   it("lists all core plugins", () => {
-    expect(CORE_PLUGINS.length).toBe(23);
+    expect(CORE_PLUGINS.length).toBe(19);
     for (const name of CORE_PLUGINS) {
       expect(name).toMatch(/^@elizaos\/plugin-/);
     }
@@ -287,6 +291,7 @@ describe("Plugin Loading — Isolation", () => {
         // These are environment-specific failures, not plugin stability bugs.
         if (
           msg.includes("Cannot find module") ||
+          msg.includes("Cannot find package") ||
           msg.includes("ERR_MODULE_NOT_FOUND") ||
           msg.includes("MODULE_NOT_FOUND") ||
           msg.includes("Dynamic require of") ||
@@ -856,6 +861,58 @@ describe("Context Serialization", () => {
     for (const name of deserialized) {
       expect(typeof name).toBe("string");
     }
+  });
+});
+
+// ============================================================================
+//  10. Version skew detection (issue #10)
+// ============================================================================
+
+describe("Version Skew Detection (issue #10)", () => {
+  it("affected plugins should NOT import MAX_EMBEDDING_TOKENS at pinned version", async () => {
+    // The 5 plugins at alpha.4 imported MAX_EMBEDDING_TOKENS from core.
+    // At alpha.3 (pinned), they should NOT attempt that import.
+    // This test validates the fix by checking our package.json pins.
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const pkgPath = resolve(import.meta.dirname, "../../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      dependencies: Record<string, string>;
+    };
+
+    const affectedPlugins = [
+      "@elizaos/plugin-openrouter",
+      "@elizaos/plugin-openai",
+      "@elizaos/plugin-ollama",
+      "@elizaos/plugin-google-genai",
+      "@elizaos/plugin-knowledge",
+    ];
+
+    for (const name of affectedPlugins) {
+      const ver = pkg.dependencies[name];
+      expect(ver).toBeDefined();
+      // Must be pinned (not "next")
+      expect(ver).not.toBe("next");
+      expect(ver).toMatch(/^\d+\.\d+\.\d+/);
+    }
+  });
+
+  it("AI provider plugins are recognized in the PROVIDER_PLUGINS map", () => {
+    // All 5 affected plugins should be present in our provider resolution
+    const affectedProviders = [
+      "@elizaos/plugin-openrouter",
+      "@elizaos/plugin-openai",
+      "@elizaos/plugin-ollama",
+      "@elizaos/plugin-google-genai",
+    ];
+    const providerPluginValues = Object.values(PROVIDER_PLUGINS);
+    for (const name of affectedProviders) {
+      expect(providerPluginValues).toContain(name);
+    }
+  });
+
+  it("plugin-knowledge is in CORE_PLUGINS", () => {
+    expect(CORE_PLUGINS).toContain("@elizaos/plugin-knowledge");
   });
 });
 

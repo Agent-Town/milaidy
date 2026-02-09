@@ -12,7 +12,7 @@
  *   - Context validation via Zod schemas
  *   - Workspace provider coding agent enrichment
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { WorkspaceBootstrapFile } from "../providers/workspace.js";
 import {
   buildCodingAgentSummary,
@@ -24,13 +24,11 @@ import {
   type CapturedError,
   CapturedErrorSchema,
   type CodingAgentContext,
-  CodingAgentContextSchema,
   type CodingIteration,
   CodingIterationSchema,
   type CommandResult,
   CommandResultSchema,
   type ConnectorConfig,
-  ConnectorConfigSchema,
   ConnectorTypeSchema,
   createCodingAgentContext,
   FileOperationSchema,

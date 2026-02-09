@@ -13,7 +13,10 @@ const distRoot = path.join(cwd, "dist");
 const distEntry = path.join(distRoot, "/entry.js");
 const buildStampPath = path.join(distRoot, ".buildstamp");
 const srcRoot = path.join(cwd, "src");
-const configFiles = [path.join(cwd, "tsconfig.json"), path.join(cwd, "package.json")];
+const configFiles = [
+  path.join(cwd, "tsconfig.json"),
+  path.join(cwd, "package.json"),
+];
 
 const statMtime = (filePath) => {
   try {
@@ -136,8 +139,14 @@ const runNode = () => {
         const bunxArgs = [compiler];
         const buildCmd = process.platform === "win32" ? "cmd.exe" : "bunx";
         const buildArgs =
-          process.platform === "win32" ? ["/d", "/s", "/c", "bunx", ...bunxArgs] : bunxArgs;
-        const build = spawn(buildCmd, buildArgs, { cwd, env, stdio: "inherit" });
+          process.platform === "win32"
+            ? ["/d", "/s", "/c", "bunx", ...bunxArgs]
+            : bunxArgs;
+        const build = spawn(buildCmd, buildArgs, {
+          cwd,
+          env,
+          stdio: "inherit",
+        });
         build.on("exit", (code, signal) => {
           if (signal || (code !== 0 && code !== null)) {
             logRunner("Rebuild failed, restarting anyway.");
@@ -162,7 +171,9 @@ const writeBuildStamp = () => {
     fs.writeFileSync(buildStampPath, `${Date.now()}\n`);
   } catch (error) {
     // Best-effort stamp; still allow the runner to start.
-    logRunner(`Failed to write build stamp: ${error?.message ?? "unknown error"}`);
+    logRunner(
+      `Failed to write build stamp: ${error?.message ?? "unknown error"}`,
+    );
   }
 };
 
@@ -174,7 +185,9 @@ if (!shouldBuild()) {
   const bunxArgs = [compiler];
   const buildCmd = process.platform === "win32" ? "cmd.exe" : "bunx";
   const buildArgs =
-    process.platform === "win32" ? ["/d", "/s", "/c", "bunx", ...bunxArgs] : bunxArgs;
+    process.platform === "win32"
+      ? ["/d", "/s", "/c", "bunx", ...bunxArgs]
+      : bunxArgs;
   const build = spawn(buildCmd, buildArgs, {
     cwd,
     env,

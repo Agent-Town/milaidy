@@ -75,10 +75,16 @@ export function installTestEnv(): { cleanup: () => void; tempHome: string } {
     { key: "MILAIDY_STATE_DIR", value: process.env.MILAIDY_STATE_DIR },
     { key: "MILAIDY_CONFIG_PATH", value: process.env.MILAIDY_CONFIG_PATH },
     { key: "MILAIDY_GATEWAY_PORT", value: process.env.MILAIDY_GATEWAY_PORT },
-    { key: "MILAIDY_BRIDGE_ENABLED", value: process.env.MILAIDY_BRIDGE_ENABLED },
+    {
+      key: "MILAIDY_BRIDGE_ENABLED",
+      value: process.env.MILAIDY_BRIDGE_ENABLED,
+    },
     { key: "MILAIDY_BRIDGE_HOST", value: process.env.MILAIDY_BRIDGE_HOST },
     { key: "MILAIDY_BRIDGE_PORT", value: process.env.MILAIDY_BRIDGE_PORT },
-    { key: "MILAIDY_CANVAS_HOST_PORT", value: process.env.MILAIDY_CANVAS_HOST_PORT },
+    {
+      key: "MILAIDY_CANVAS_HOST_PORT",
+      value: process.env.MILAIDY_CANVAS_HOST_PORT,
+    },
     { key: "MILAIDY_TEST_HOME", value: process.env.MILAIDY_TEST_HOME },
     { key: "TELEGRAM_BOT_TOKEN", value: process.env.TELEGRAM_BOT_TOKEN },
     { key: "DISCORD_BOT_TOKEN", value: process.env.DISCORD_BOT_TOKEN },
@@ -142,6 +148,9 @@ export function installTestEnv(): { cleanup: () => void; tempHome: string } {
   return { cleanup, tempHome };
 }
 
-export function withIsolatedTestHome(): { cleanup: () => void; tempHome: string } {
+export function withIsolatedTestHome(): {
+  cleanup: () => void;
+  tempHome: string;
+} {
   return installTestEnv();
 }

@@ -80,10 +80,10 @@ const KEY_PREFIX_HINTS: Readonly<
  * @param paramDefs - Full parameter definitions with required/sensitive metadata
  */
 export function validatePluginConfig(
-  pluginId: string,
-  category: string,
+  _pluginId: string,
+  _category: string,
   envKey: string | null,
-  configKeys: string[],
+  _configKeys: string[],
   providedConfig?: Record<string, string>,
   paramDefs?: PluginParamInfo[],
 ): PluginValidationResult {

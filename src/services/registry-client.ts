@@ -47,6 +47,50 @@ export interface RegistryPluginInfo {
     v2Branch: string | null;
   };
   supports: { v0: boolean; v1: boolean; v2: boolean };
+  /** Set to "app" when this entry is a launchable application */
+  kind?: string;
+  /** App metadata — present when kind is "app" */
+  appMeta?: RegistryAppMeta;
+}
+
+/** App-specific metadata from the registry. */
+export interface RegistryAppMeta {
+  displayName: string;
+  category: string;
+  launchType: string;
+  launchUrl: string | null;
+  icon: string | null;
+  capabilities: string[];
+  minPlayers: number | null;
+  maxPlayers: number | null;
+}
+
+/** App-specific info for listing and searching. */
+export interface RegistryAppInfo {
+  name: string;
+  displayName: string;
+  description: string;
+  category: string;
+  launchType: string;
+  launchUrl: string | null;
+  icon: string | null;
+  capabilities: string[];
+  stars: number;
+  repository: string;
+  latestVersion: string | null;
+  supports: { v0: boolean; v1: boolean; v2: boolean };
+  npm: {
+    package: string;
+    v0Version: string | null;
+    v1Version: string | null;
+    v2Version: string | null;
+  };
+  viewer?: {
+    url: string;
+    embedParams?: Record<string, string>;
+    postMessageAuth?: boolean;
+    sandbox?: string;
+  };
 }
 
 export interface RegistrySearchResult {
@@ -107,12 +151,23 @@ async function fetchFromNetwork(): Promise<Map<string, RegistryPluginInfo>> {
             topics: string[];
             stargazers_count: number;
             language: string;
+            kind?: string;
+            app?: {
+              displayName: string;
+              category: string;
+              launchType: string;
+              launchUrl: string | null;
+              icon: string | null;
+              capabilities: string[];
+              minPlayers: number | null;
+              maxPlayers: number | null;
+            };
           }
         >;
       };
       const plugins = new Map<string, RegistryPluginInfo>();
       for (const [name, e] of Object.entries(data.registry)) {
-        plugins.set(name, {
+        const info: RegistryPluginInfo = {
           name,
           gitRepo: e.git.repo,
           gitUrl: `https://github.com/${e.git.repo}.git`,
@@ -133,7 +188,23 @@ async function fetchFromNetwork(): Promise<Map<string, RegistryPluginInfo>> {
             v2Branch: e.git.v2?.branch ?? null,
           },
           supports: e.supports,
-        });
+        };
+
+        if (e.kind === "app" && e.app) {
+          info.kind = "app";
+          info.appMeta = {
+            displayName: e.app.displayName,
+            category: e.app.category,
+            launchType: e.app.launchType,
+            launchUrl: e.app.launchUrl,
+            icon: e.app.icon,
+            capabilities: e.app.capabilities || [],
+            minPlayers: e.app.minPlayers ?? null,
+            maxPlayers: e.app.maxPlayers ?? null,
+          };
+        }
+
+        plugins.set(name, info);
       }
       return plugins;
     }
@@ -271,28 +342,38 @@ export async function getPluginInfo(
   return null;
 }
 
-/** Search plugins by query (local fuzzy match on name/description/topics). */
-export async function searchPlugins(
+/**
+ * Score registry entries against a query. Shared by searchPlugins and searchApps.
+ * Returns entries sorted by score descending, limited to `limit` results.
+ */
+function scoreEntries(
+  entries: Iterable<RegistryPluginInfo>,
   query: string,
-  limit = 15,
-): Promise<RegistrySearchResult[]> {
-  const registry = await getRegistryPlugins();
+  limit: number,
+  extraNames?: (p: RegistryPluginInfo) => string[],
+  extraTerms?: (p: RegistryPluginInfo) => string[],
+): Array<{ p: RegistryPluginInfo; s: number }> {
   const lq = query.toLowerCase();
   const terms = lq.split(/\s+/).filter((t) => t.length > 1);
-
   const scored: Array<{ p: RegistryPluginInfo; s: number }> = [];
 
-  for (const p of registry.values()) {
+  for (const p of entries) {
     const ln = p.name.toLowerCase();
     const ld = p.description.toLowerCase();
+    const aliases = extraNames?.(p) ?? [];
     let s = 0;
 
-    if (ln === lq || ln === `@elizaos/${lq}`) s += 100;
-    else if (ln.includes(lq)) s += 50;
+    // Exact match on name or aliases
+    if (ln === lq || ln === `@elizaos/${lq}` || aliases.some((a) => a === lq))
+      s += 100;
+    else if (ln.includes(lq) || aliases.some((a) => a.includes(lq))) s += 50;
     if (ld.includes(lq)) s += 30;
+    // Topics + extra terms (capabilities for apps)
     for (const t of p.topics) if (t.toLowerCase().includes(lq)) s += 25;
+    for (const t of extraTerms?.(p) ?? [])
+      if (t.toLowerCase().includes(lq)) s += 25;
     for (const term of terms) {
-      if (ln.includes(term)) s += 15;
+      if (ln.includes(term) || aliases.some((a) => a.includes(term))) s += 15;
       if (ld.includes(term)) s += 10;
       for (const t of p.topics) if (t.toLowerCase().includes(term)) s += 8;
     }
@@ -305,9 +386,19 @@ export async function searchPlugins(
   }
 
   scored.sort((a, b) => b.s - a.s || b.p.stars - a.p.stars);
-  const max = scored[0]?.s || 1;
+  return scored.slice(0, limit);
+}
 
-  return scored.slice(0, limit).map(({ p, s }) => ({
+/** Search plugins by query (local fuzzy match on name/description/topics). */
+export async function searchPlugins(
+  query: string,
+  limit = 15,
+): Promise<RegistrySearchResult[]> {
+  const registry = await getRegistryPlugins();
+  const results = scoreEntries(registry.values(), query, limit);
+  const max = results[0]?.s || 1;
+
+  return results.map(({ p, s }) => ({
     name: p.name,
     description: p.description,
     score: s / max,
@@ -317,4 +408,135 @@ export async function searchPlugins(
     supports: p.supports,
     repository: `https://github.com/${p.gitRepo}`,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// App-specific queries
+// ---------------------------------------------------------------------------
+
+function toAppInfo(p: RegistryPluginInfo): RegistryAppInfo {
+  const meta = p.appMeta;
+  return {
+    name: p.name,
+    displayName: meta?.displayName ?? p.name.replace(/^@elizaos\/app-/, ""),
+    description: p.description,
+    category: meta?.category ?? "game",
+    launchType: meta?.launchType ?? "url",
+    launchUrl: meta?.launchUrl ?? p.homepage,
+    icon: meta?.icon ?? null,
+    capabilities: meta?.capabilities ?? [],
+    stars: p.stars,
+    repository: `https://github.com/${p.gitRepo}`,
+    latestVersion: p.npm.v2Version || p.npm.v1Version || p.npm.v0Version,
+    supports: p.supports,
+    npm: p.npm,
+    // Pass through viewer config from the registry metadata
+    viewer: meta?.launchType === "connect" || meta?.launchType === "local"
+      ? { url: meta?.launchUrl ?? "", sandbox: "allow-scripts allow-same-origin allow-popups" }
+      : undefined,
+  };
+}
+
+/** List all registered apps. */
+export async function listApps(): Promise<RegistryAppInfo[]> {
+  const registry = await getRegistryPlugins();
+  const apps: RegistryAppInfo[] = [];
+
+  for (const p of registry.values()) {
+    if (p.kind === "app") {
+      apps.push(toAppInfo(p));
+    }
+  }
+
+  apps.sort((a, b) => b.stars - a.stars);
+  return apps;
+}
+
+/** Look up a specific app by name. */
+export async function getAppInfo(
+  name: string,
+): Promise<RegistryAppInfo | null> {
+  const info = await getPluginInfo(name);
+  if (!info || info.kind !== "app") return null;
+  return toAppInfo(info);
+}
+
+/** Search apps by query. */
+export async function searchApps(
+  query: string,
+  limit = 15,
+): Promise<RegistryAppInfo[]> {
+  const registry = await getRegistryPlugins();
+  const appEntries = [...registry.values()].filter((p) => p.kind === "app");
+
+  const results = scoreEntries(
+    appEntries,
+    query,
+    limit,
+    (p) => [p.appMeta?.displayName?.toLowerCase() ?? ""],
+    (p) => p.appMeta?.capabilities ?? [],
+  );
+
+  return results.map(({ p }) => toAppInfo(p));
+}
+
+// ---------------------------------------------------------------------------
+// Non-app plugin queries (for unified Apps & Plugins view)
+// ---------------------------------------------------------------------------
+
+/** Slim plugin info returned by listNonAppPlugins / searchNonAppPlugins. */
+export interface RegistryPluginListItem {
+  name: string;
+  description: string;
+  stars: number;
+  repository: string;
+  topics: string[];
+  latestVersion: string | null;
+  supports: { v0: boolean; v1: boolean; v2: boolean };
+  npm: {
+    package: string;
+    v0Version: string | null;
+    v1Version: string | null;
+    v2Version: string | null;
+  };
+}
+
+function toPluginListItem(p: RegistryPluginInfo): RegistryPluginListItem {
+  return {
+    name: p.name,
+    description: p.description,
+    stars: p.stars,
+    repository: `https://github.com/${p.gitRepo}`,
+    topics: p.topics,
+    latestVersion: p.npm.v2Version || p.npm.v1Version || p.npm.v0Version,
+    supports: p.supports,
+    npm: p.npm,
+  };
+}
+
+/** List all non-app plugins from the registry. */
+export async function listNonAppPlugins(): Promise<RegistryPluginListItem[]> {
+  const registry = await getRegistryPlugins();
+  const plugins: RegistryPluginListItem[] = [];
+
+  for (const p of registry.values()) {
+    if (p.kind !== "app") {
+      plugins.push(toPluginListItem(p));
+    }
+  }
+
+  plugins.sort((a, b) => b.stars - a.stars);
+  return plugins;
+}
+
+/** Search non-app plugins by query. */
+export async function searchNonAppPlugins(
+  query: string,
+  limit = 15,
+): Promise<RegistryPluginListItem[]> {
+  const registry = await getRegistryPlugins();
+  const pluginEntries = [...registry.values()].filter((p) => p.kind !== "app");
+
+  const results = scoreEntries(pluginEntries, query, limit);
+  return results.map(({ p }) => toPluginListItem(p));
 }

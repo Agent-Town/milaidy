@@ -1,0 +1,33 @@
+/**
+ * Fire-and-forget background update check. Prints a one-line notice
+ * to stderr if a newer version is available (like npm's update-notifier).
+ */
+
+import { loadMilaidyConfig } from "../config/config.js";
+import { theme } from "../terminal/theme.js";
+import { checkForUpdate, resolveChannel } from "./update-checker.js";
+
+let notified = false;
+
+export function scheduleUpdateNotification(): void {
+  if (notified) return;
+  notified = true;
+
+  const config = loadMilaidyConfig();
+  if (config.update?.checkOnStart === false) return;
+  if (process.env.CI || !process.stderr.isTTY) return;
+
+  void checkForUpdate()
+    .then((result) => {
+      if (!result.updateAvailable || !result.latestVersion) return;
+
+      const channel = resolveChannel(config.update);
+      const suffix = channel !== "stable" ? ` (${channel})` : "";
+
+      process.stderr.write(
+        `\n${theme.accent("Update available:")} ${theme.muted(result.currentVersion)} -> ${theme.success(result.latestVersion)}${theme.muted(suffix)}\n` +
+          `${theme.muted("Run")} ${theme.command("milaidy update")} ${theme.muted("to install")}\n\n`,
+      );
+    })
+    .catch(() => {});
+}

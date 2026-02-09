@@ -12,7 +12,7 @@ import type { InternalHooksConfig } from "../config/types.hooks.js";
 import { type DiscoveryOptions, discoverHooks } from "./discovery.js";
 import { checkEligibility, resolveHookConfig } from "./eligibility.js";
 import { clearHooks, registerHook } from "./registry.js";
-import type { HookEntry, HookHandler } from "./types.js";
+import type { HookHandler } from "./types.js";
 
 // ---------- Dynamic Handler Loading ----------
 

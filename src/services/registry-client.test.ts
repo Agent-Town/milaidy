@@ -98,6 +98,74 @@ function fakeGeneratedRegistry() {
         stargazers_count: 5,
         language: "TypeScript",
       },
+      "@elizaos/app-dungeons": {
+        git: {
+          repo: "elizaos/app-dungeons",
+          v0: { version: null, branch: null },
+          v1: { version: null, branch: null },
+          v2: { version: "1.0.0", branch: "main" },
+        },
+        npm: {
+          repo: "@elizaos/app-dungeons",
+          v0: null,
+          v1: null,
+          v2: "1.0.0",
+          v0CoreRange: null,
+          v1CoreRange: null,
+          v2CoreRange: ">=2.0.0",
+        },
+        supports: { v0: false, v1: false, v2: true },
+        description: "D&D VTT with AI Dungeon Master",
+        homepage: null,
+        topics: ["game", "rpg", "dnd"],
+        stargazers_count: 42,
+        language: "TypeScript",
+        kind: "app",
+        app: {
+          displayName: "Dungeons",
+          category: "game",
+          launchType: "local",
+          launchUrl: "http://localhost:{port}",
+          icon: null,
+          capabilities: ["combat", "roleplay", "exploration"],
+          minPlayers: 1,
+          maxPlayers: 6,
+        },
+      },
+      "@elizaos/app-babylon": {
+        git: {
+          repo: "elizaos/app-babylon",
+          v0: { version: null, branch: null },
+          v1: { version: null, branch: null },
+          v2: { version: "1.0.0", branch: "main" },
+        },
+        npm: {
+          repo: "@elizaos/app-babylon",
+          v0: null,
+          v1: null,
+          v2: "1.0.0",
+          v0CoreRange: null,
+          v1CoreRange: null,
+          v2CoreRange: ">=2.0.0",
+        },
+        supports: { v0: false, v1: false, v2: true },
+        description: "Prediction market platform",
+        homepage: "https://babylon.social",
+        topics: ["defi", "trading", "social"],
+        stargazers_count: 200,
+        language: "TypeScript",
+        kind: "app",
+        app: {
+          displayName: "Babylon",
+          category: "platform",
+          launchType: "url",
+          launchUrl: "https://babylon.social",
+          icon: "https://babylon.social/icon.png",
+          capabilities: ["trading", "social", "prediction-markets"],
+          minPlayers: null,
+          maxPlayers: null,
+        },
+      },
     },
   };
 }
@@ -154,17 +222,17 @@ describe("registry-client", () => {
       const { getRegistryPlugins } = await loadModule();
       const registry = await getRegistryPlugins();
 
-      expect(registry.size).toBe(3);
+      expect(registry.size).toBe(5);
       const solana = registry.get("@elizaos/plugin-solana");
       expect(solana).toBeDefined();
-      expect(solana!.description).toBe("Solana blockchain integration");
-      expect(solana!.npm.v2Version).toBe("2.0.0-alpha.3");
-      expect(solana!.supports.v2).toBe(true);
-      expect(solana!.gitUrl).toBe(
+      expect(solana?.description).toBe("Solana blockchain integration");
+      expect(solana?.npm.v2Version).toBe("2.0.0-alpha.3");
+      expect(solana?.supports.v2).toBe(true);
+      expect(solana?.gitUrl).toBe(
         "https://github.com/elizaos-plugins/plugin-solana.git",
       );
-      expect(solana!.stars).toBe(150);
-      expect(solana!.topics).toContain("blockchain");
+      expect(solana?.stars).toBe(150);
+      expect(solana?.topics).toContain("blockchain");
     });
 
     it("falls back to index.json when generated-registry.json fails", async () => {
@@ -194,8 +262,8 @@ describe("registry-client", () => {
       // index.json has no descriptions — should be empty
       const solana = registry.get("@elizaos/plugin-solana");
       expect(solana).toBeDefined();
-      expect(solana!.description).toBe("");
-      expect(solana!.gitRepo).toBe("elizaos-plugins/plugin-solana");
+      expect(solana?.description).toBe("");
+      expect(solana?.gitRepo).toBe("elizaos-plugins/plugin-solana");
     });
 
     it("throws when both generated-registry.json and index.json fail", async () => {
@@ -256,7 +324,7 @@ describe("registry-client", () => {
       const mod2 = await loadModule();
       const registry = await mod2.getRegistryPlugins();
       expect(mockFetch2).not.toHaveBeenCalled();
-      expect(registry.size).toBe(3);
+      expect(registry.size).toBe(5);
     });
   });
 
@@ -297,14 +365,14 @@ describe("registry-client", () => {
       const { getPluginInfo } = await loadModule();
       const info = await getPluginInfo("@elizaos/plugin-solana");
       expect(info).not.toBeNull();
-      expect(info!.name).toBe("@elizaos/plugin-solana");
+      expect(info?.name).toBe("@elizaos/plugin-solana");
     });
 
     it("finds plugin by bare name (adds @elizaos/ prefix)", async () => {
       const { getPluginInfo } = await loadModule();
       const info = await getPluginInfo("plugin-solana");
       expect(info).not.toBeNull();
-      expect(info!.name).toBe("@elizaos/plugin-solana");
+      expect(info?.name).toBe("@elizaos/plugin-solana");
     });
 
     it("finds plugin by scope-stripped name", async () => {
@@ -312,7 +380,7 @@ describe("registry-client", () => {
       // @thirdparty/plugin-weather — search by "plugin-weather"
       const info = await getPluginInfo("plugin-weather");
       expect(info).not.toBeNull();
-      expect(info!.name).toBe("@thirdparty/plugin-weather");
+      expect(info?.name).toBe("@thirdparty/plugin-weather");
     });
 
     it("returns null for non-existent plugin", async () => {
@@ -405,6 +473,284 @@ describe("registry-client", () => {
         expect(r.score).toBeGreaterThanOrEqual(0);
         expect(r.score).toBeLessThanOrEqual(1);
       }
+    });
+  });
+
+  // =========================================================================
+  // App-specific functions
+  // =========================================================================
+
+  describe("listApps", () => {
+    beforeEach(async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+    });
+
+    it("returns only entries with kind 'app'", async () => {
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+
+      expect(apps.length).toBe(2);
+      const names = apps.map((a: { name: string }) => a.name);
+      expect(names).toContain("@elizaos/app-dungeons");
+      expect(names).toContain("@elizaos/app-babylon");
+      // Regular plugins should NOT appear
+      expect(names).not.toContain("@elizaos/plugin-solana");
+      expect(names).not.toContain("@elizaos/plugin-discord");
+    });
+
+    it("sorts apps by star count descending", async () => {
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+
+      // Babylon (200 stars) should come before Dungeons (42 stars)
+      expect(apps[0].name).toBe("@elizaos/app-babylon");
+      expect(apps[1].name).toBe("@elizaos/app-dungeons");
+    });
+
+    it("populates all RegistryAppInfo fields from app metadata", async () => {
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+
+      const babylon = apps.find(
+        (a: { name: string }) => a.name === "@elizaos/app-babylon",
+      );
+      expect(babylon).toBeDefined();
+      expect(babylon.displayName).toBe("Babylon");
+      expect(babylon.category).toBe("platform");
+      expect(babylon.launchType).toBe("url");
+      expect(babylon.launchUrl).toBe("https://babylon.social");
+      expect(babylon.icon).toBe("https://babylon.social/icon.png");
+      expect(babylon.capabilities).toEqual([
+        "trading",
+        "social",
+        "prediction-markets",
+      ]);
+      expect(babylon.stars).toBe(200);
+      expect(babylon.repository).toBe("https://github.com/elizaos/app-babylon");
+      expect(babylon.latestVersion).toBe("1.0.0");
+      expect(babylon.supports.v2).toBe(true);
+      expect(babylon.npm.package).toBe("@elizaos/app-babylon");
+    });
+
+    it("populates local app fields correctly", async () => {
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+
+      const dungeons = apps.find(
+        (a: { name: string }) => a.name === "@elizaos/app-dungeons",
+      );
+      expect(dungeons).toBeDefined();
+      expect(dungeons.displayName).toBe("Dungeons");
+      expect(dungeons.category).toBe("game");
+      expect(dungeons.launchType).toBe("local");
+      expect(dungeons.launchUrl).toBe("http://localhost:{port}");
+      expect(dungeons.icon).toBeNull();
+      expect(dungeons.capabilities).toContain("combat");
+    });
+
+    it("returns empty array when registry has no apps", async () => {
+      // Override with a registry that has zero app entries
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              lastUpdatedAt: "2026-02-07T00:00:00Z",
+              registry: {
+                "@elizaos/plugin-solana":
+                  fakeGeneratedRegistry().registry["@elizaos/plugin-solana"],
+              },
+            }),
+        }),
+      );
+      vi.resetModules();
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+      expect(apps).toEqual([]);
+    });
+  });
+
+  describe("getAppInfo", () => {
+    beforeEach(async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+    });
+
+    it("returns app info for an existing app", async () => {
+      const { getAppInfo } = await loadModule();
+      const info = await getAppInfo("@elizaos/app-dungeons");
+      expect(info).not.toBeNull();
+      expect(info?.displayName).toBe("Dungeons");
+      expect(info?.launchType).toBe("local");
+    });
+
+    it("resolves app by bare name", async () => {
+      const { getAppInfo } = await loadModule();
+      const info = await getAppInfo("app-dungeons");
+      expect(info).not.toBeNull();
+      expect(info?.name).toBe("@elizaos/app-dungeons");
+    });
+
+    it("returns null for a regular plugin (not an app)", async () => {
+      const { getAppInfo } = await loadModule();
+      const info = await getAppInfo("@elizaos/plugin-solana");
+      expect(info).toBeNull();
+    });
+
+    it("returns null for a non-existent entry", async () => {
+      const { getAppInfo } = await loadModule();
+      const info = await getAppInfo("@elizaos/app-nonexistent");
+      expect(info).toBeNull();
+    });
+
+    it("returns null for empty string", async () => {
+      const { getAppInfo } = await loadModule();
+      const info = await getAppInfo("");
+      expect(info).toBeNull();
+    });
+  });
+
+  describe("searchApps", () => {
+    beforeEach(async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+    });
+
+    it("matches on app display name", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("Babylon");
+      expect(results.length).toBe(1);
+      expect(results[0].name).toBe("@elizaos/app-babylon");
+    });
+
+    it("matches on app capabilities", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("trading");
+      expect(
+        results.some(
+          (r: { name: string }) => r.name === "@elizaos/app-babylon",
+        ),
+      ).toBe(true);
+    });
+
+    it("matches on description", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("dungeon master");
+      expect(results.length).toBeGreaterThan(0);
+      // "D&D VTT with AI Dungeon Master" should match
+    });
+
+    it("does NOT return regular plugins", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("solana");
+      // "solana" should match the plugin but searchApps filters to kind=app only
+      expect(results.length).toBe(0);
+    });
+
+    it("returns empty for unmatched query", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("zzzznonexistentzzzz");
+      expect(results).toEqual([]);
+    });
+
+    it("respects limit parameter", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("app", 1);
+      expect(results.length).toBeLessThanOrEqual(1);
+    });
+
+    it("matches on topics", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("rpg");
+      expect(
+        results.some(
+          (r: { name: string }) => r.name === "@elizaos/app-dungeons",
+        ),
+      ).toBe(true);
+    });
+
+    it("multi-word query scores both terms", async () => {
+      const { searchApps } = await loadModule();
+      const results = await searchApps("prediction market");
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].name).toBe("@elizaos/app-babylon");
+    });
+  });
+
+  describe("app metadata parsing", () => {
+    it("parses kind and appMeta from generated-registry.json", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+      const { getRegistryPlugins } = await loadModule();
+      const registry = await getRegistryPlugins();
+
+      const dungeons = registry.get("@elizaos/app-dungeons");
+      expect(dungeons).toBeDefined();
+      expect(dungeons?.kind).toBe("app");
+      expect(dungeons?.appMeta).toBeDefined();
+      expect(dungeons?.appMeta?.displayName).toBe("Dungeons");
+      expect(dungeons?.appMeta?.category).toBe("game");
+      expect(dungeons?.appMeta?.launchType).toBe("local");
+      expect(dungeons?.appMeta?.capabilities).toContain("combat");
+      expect(dungeons?.appMeta?.maxPlayers).toBe(6);
+    });
+
+    it("regular plugins have no kind or appMeta", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+      const { getRegistryPlugins } = await loadModule();
+      const registry = await getRegistryPlugins();
+
+      const solana = registry.get("@elizaos/plugin-solana");
+      expect(solana).toBeDefined();
+      expect(solana?.kind).toBeUndefined();
+      expect(solana?.appMeta).toBeUndefined();
+    });
+
+    it("handles app entries with null optional fields", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve(fakeGeneratedRegistry()),
+        }),
+      );
+      const { listApps } = await loadModule();
+      const apps = await listApps();
+
+      const dungeons = apps.find(
+        (a: { name: string }) => a.name === "@elizaos/app-dungeons",
+      );
+      expect(dungeons?.icon).toBeNull();
+      // minPlayers and maxPlayers are in the wire format but not in RegistryAppInfo
+      // (they're in appMeta) — verify they're present on the raw entry
     });
   });
 });

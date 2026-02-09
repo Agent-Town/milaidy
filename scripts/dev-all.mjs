@@ -93,7 +93,9 @@ function prefixStream(name, stream) {
 }
 
 console.log(`\n🦞 Milaidy dev environment\n`);
-console.log(`Starting ${enabledServices.length} service(s): ${enabledServices.map((s) => s.name).join(", ")}\n`);
+console.log(
+  `Starting ${enabledServices.length} service(s): ${enabledServices.map((s) => s.name).join(", ")}\n`,
+);
 
 for (const service of enabledServices) {
   const child = spawn(service.cmd, service.args, {

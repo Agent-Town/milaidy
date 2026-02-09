@@ -35,21 +35,28 @@ const runs = [
   },
   // Only include playwright tests if @playwright/test is installed
   ...(playwrightCli
-    ? [{
-        name: "e2e:playwright",
-        cmd: "node",
-        args: [playwrightCli, "test"],
-        cwd: uiDir,
-      }]
+    ? [
+        {
+          name: "e2e:playwright",
+          cmd: "node",
+          args: [playwrightCli, "test"],
+          cwd: uiDir,
+        },
+      ]
     : []),
 ];
 
 const children = new Set();
 const isCI = process.env.CI === "true" || process.env.GITHUB_ACTIONS === "true";
-const isMacOS = process.platform === "darwin" || process.env.RUNNER_OS === "macOS";
-const isWindows = process.platform === "win32" || process.env.RUNNER_OS === "Windows";
+const isMacOS =
+  process.platform === "darwin" || process.env.RUNNER_OS === "macOS";
+const isWindows =
+  process.platform === "win32" || process.env.RUNNER_OS === "Windows";
 const isWindowsCi = isCI && isWindows;
-const shardOverride = Number.parseInt(process.env.MILAIDY_TEST_SHARDS ?? "", 10);
+const shardOverride = Number.parseInt(
+  process.env.MILAIDY_TEST_SHARDS ?? "",
+  10,
+);
 const shardCount = isWindowsCi
   ? Number.isFinite(shardOverride) && shardOverride > 1
     ? shardOverride
@@ -58,9 +65,14 @@ const shardCount = isWindowsCi
 const windowsCiArgs = isWindowsCi
   ? ["--no-file-parallelism", "--dangerouslyIgnoreUnhandledErrors"]
   : [];
-const overrideWorkers = Number.parseInt(process.env.MILAIDY_TEST_WORKERS ?? "", 10);
+const overrideWorkers = Number.parseInt(
+  process.env.MILAIDY_TEST_WORKERS ?? "",
+  10,
+);
 const resolvedOverride =
-  Number.isFinite(overrideWorkers) && overrideWorkers > 0 ? overrideWorkers : null;
+  Number.isFinite(overrideWorkers) && overrideWorkers > 0
+    ? overrideWorkers
+    : null;
 const parallelRuns = isWindowsCi ? [] : runs;
 const serialRuns = isWindowsCi ? runs : [];
 const localWorkers = Math.max(4, Math.min(16, os.cpus().length));
@@ -80,7 +92,10 @@ const WARNING_SUPPRESSION_FLAGS = [
 const runOnce = (entry, extraArgs = []) =>
   new Promise((resolve) => {
     const vitestExtras = entry.vitest
-      ? [...(maxWorkers ? ["--maxWorkers", String(maxWorkers)] : []), ...windowsCiArgs]
+      ? [
+          ...(maxWorkers ? ["--maxWorkers", String(maxWorkers)] : []),
+          ...windowsCiArgs,
+        ]
       : [];
     const args = [...entry.args, ...vitestExtras, ...extraArgs];
     const nodeOptions = process.env.NODE_OPTIONS ?? "";
@@ -92,7 +107,11 @@ const runOnce = (entry, extraArgs = []) =>
     const child = spawn(cmd, args, {
       stdio: "inherit",
       ...(entry.cwd ? { cwd: entry.cwd } : {}),
-      env: { ...process.env, VITEST_GROUP: entry.name, NODE_OPTIONS: nextNodeOptions },
+      env: {
+        ...process.env,
+        VITEST_GROUP: entry.name,
+        NODE_OPTIONS: nextNodeOptions,
+      },
       shell: process.platform === "win32",
     });
     children.add(child);
@@ -109,7 +128,10 @@ const run = async (entry) => {
   }
   for (let shardIndex = 1; shardIndex <= shardCount; shardIndex += 1) {
     // eslint-disable-next-line no-await-in-loop
-    const code = await runOnce(entry, ["--shard", `${shardIndex}/${shardCount}`]);
+    const code = await runOnce(entry, [
+      "--shard",
+      `${shardIndex}/${shardCount}`,
+    ]);
     if (code !== 0) {
       return code;
     }

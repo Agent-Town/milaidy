@@ -31,9 +31,8 @@ test.describe("Skills page", () => {
     await mockApi(page);
     await page.goto("/");
     await page.locator("a").filter({ hasText: "Skills" }).click();
-    await page.waitForTimeout(500);
-    const activeCount = await page.locator(".plugin-status.enabled").count();
-    expect(activeCount).toBe(2);
+    // Wait for both loaded skills and marketplace installed skills to render
+    await expect(page.locator(".plugin-status.enabled")).toHaveCount(2); // 2 loaded enabled (Web Search + Code Review)
   });
 
   test("shows empty state when no skills", async ({ page }) => {
@@ -41,7 +40,7 @@ test.describe("Skills page", () => {
     await page.goto("/");
     await page.locator("a").filter({ hasText: "Skills" }).click();
     await page.waitForTimeout(500);
-    await expect(page.getByText("No skills loaded yet.")).toBeVisible();
+    await expect(page.getByText("No skills loaded yet.", { exact: true })).toBeVisible();
   });
 
   test("shows skill count in subtitle", async ({ page }) => {
@@ -49,6 +48,6 @@ test.describe("Skills page", () => {
     await page.goto("/");
     await page.locator("a").filter({ hasText: "Skills" }).click();
     await page.waitForTimeout(500);
-    await expect(page.locator(".subtitle")).toContainText("3 skills loaded");
+    await expect(page.locator(".subtitle").last()).toContainText("3 loaded skills.");
   });
 });

@@ -1,0 +1,152 @@
+name: Publish npm
+
+# Publishes milaidy to npm with the correct dist-tag based on the version.
+#
+# Channel mapping:
+#   - Stable releases (v2.0.0)           → dist-tag "latest"
+#   - Beta releases (v2.0.0-beta.1)      → dist-tag "beta"
+#   - Nightly builds are handled by nightly.yml
+#
+# Triggers:
+#   - After a GitHub Release is published (from release.yml)
+#   - Manual dispatch for ad-hoc publishes
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 2.0.0, 2.0.0-beta.1)"
+        required: true
+        type: string
+      dist_tag:
+        description: "npm dist-tag override (leave empty for auto-detection)"
+        required: false
+        type: string
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Determine version and dist-tag
+        id: meta
+        run: |
+          # Resolve version
+          if [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Resolve dist-tag
+          if [[ -n "${{ inputs.dist_tag }}" ]]; then
+            DIST_TAG="${{ inputs.dist_tag }}"
+          elif echo "$VERSION" | grep -qE 'nightly'; then
+            DIST_TAG="nightly"
+          elif echo "$VERSION" | grep -qE 'beta'; then
+            DIST_TAG="beta"
+          elif echo "$VERSION" | grep -qE 'alpha|rc'; then
+            DIST_TAG="next"
+          else
+            DIST_TAG="latest"
+          fi
+          echo "dist_tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION"
+          echo "Dist-tag: $DIST_TAG"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Set version in package.json
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ steps.meta.outputs.version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Publishing version: $(node -p "require('./package.json').version")"
+
+      - name: Build
+        run: |
+          bunx tsdown
+          node --import tsx scripts/write-build-info.ts
+          echo '{"type":"module"}' > dist/package.json
+
+      - name: Validate package
+        run: |
+          PACK_OUTPUT=$(npm pack --dry-run 2>&1)
+          echo "$PACK_OUTPUT"
+
+          # Verify critical files are included in the package
+          for required in "milaidy.mjs" "dist/index.js" "package.json"; do
+            if ! echo "$PACK_OUTPUT" | grep -q "$required"; then
+              echo "::error::Required file '$required' missing from package contents"
+              exit 1
+            fi
+          done
+
+          echo "Package validation passed — all required files present"
+
+      - name: Publish to npm
+        run: npm publish --tag ${{ steps.meta.outputs.dist_tag }} --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify publish
+        run: |
+          sleep 5  # Give the registry a moment to propagate
+          PUBLISHED=$(npm view milaidy@${{ steps.meta.outputs.dist_tag }} version 2>/dev/null || echo "")
+          EXPECTED="${{ steps.meta.outputs.version }}"
+
+          if [[ "$PUBLISHED" == "$EXPECTED" ]]; then
+            echo "Verified: milaidy@${{ steps.meta.outputs.dist_tag }} → $PUBLISHED"
+          else
+            echo "::warning::Published version ($PUBLISHED) does not match expected ($EXPECTED). Registry may still be propagating."
+          fi
+
+      - name: Summary
+        run: |
+          echo "## npm Publish Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | milaidy |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${{ steps.meta.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dist-tag | \`${{ steps.meta.outputs.dist_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Install" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "npm install -g milaidy@${{ steps.meta.outputs.dist_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

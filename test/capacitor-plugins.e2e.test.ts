@@ -23,10 +23,22 @@ const PLUGINS = [
   { dir: "camera", name: "@milaidy/capacitor-camera", exportName: "Camera" },
   { dir: "canvas", name: "@milaidy/capacitor-canvas", exportName: "Canvas" },
   { dir: "desktop", name: "@milaidy/capacitor-desktop", exportName: "Desktop" },
-  { dir: "location", name: "@milaidy/capacitor-location", exportName: "Location" },
-  { dir: "screencapture", name: "@milaidy/capacitor-screencapture", exportName: "ScreenCapture" },
+  {
+    dir: "location",
+    name: "@milaidy/capacitor-location",
+    exportName: "Location",
+  },
+  {
+    dir: "screencapture",
+    name: "@milaidy/capacitor-screencapture",
+    exportName: "ScreenCapture",
+  },
   { dir: "swabble", name: "@milaidy/capacitor-swabble", exportName: "Swabble" },
-  { dir: "talkmode", name: "@milaidy/capacitor-talkmode", exportName: "TalkMode" },
+  {
+    dir: "talkmode",
+    name: "@milaidy/capacitor-talkmode",
+    exportName: "TalkMode",
+  },
 ];
 
 describe("Capacitor Plugin Build Verification", () => {
@@ -61,7 +73,9 @@ describe("Capacitor Plugin Build Verification", () => {
         const built = fs.existsSync(distDir);
         if (!built) {
           // Skip rather than fail — plugins may not be built in CI
-          console.warn(`[SKIP] ${plugin.name}: dist/ not found (run bun run plugin:build)`);
+          console.warn(
+            `[SKIP] ${plugin.name}: dist/ not found (run bun run plugin:build)`,
+          );
           return;
         }
 
@@ -70,7 +84,9 @@ describe("Capacitor Plugin Build Verification", () => {
         // Check ESM build
         expect(fs.existsSync(path.join(distDir, "esm", "index.js"))).toBe(true);
         // Check type declarations
-        expect(fs.existsSync(path.join(distDir, "esm", "index.d.ts"))).toBe(true);
+        expect(fs.existsSync(path.join(distDir, "esm", "index.d.ts"))).toBe(
+          true,
+        );
       });
 
       it("ESM index.js exports expected symbols", async () => {

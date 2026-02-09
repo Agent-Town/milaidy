@@ -21,12 +21,13 @@ function normalizeBase(input: string): string {
 
 /** Check if an error is a transient connection error (backend starting/restarting). */
 function isTransientConnError(err: NodeJS.ErrnoException): boolean {
-  if (err.code === "ECONNREFUSED" || err.code === "ECONNRESET") return true;
+  const transientCodes = new Set(["ECONNREFUSED", "ECONNRESET", "EAGAIN"]);
+  if (err.code && transientCodes.has(err.code)) return true;
   // Node 22+ wraps multiple connection attempts in AggregateError
   const agg = err as NodeJS.ErrnoException & { errors?: NodeJS.ErrnoException[] };
   if (agg.errors) {
     return agg.errors.some(
-      (e) => e.code === "ECONNREFUSED" || e.code === "ECONNRESET",
+      (e) => e.code != null && transientCodes.has(e.code),
     );
   }
   return false;
@@ -43,7 +44,7 @@ function isTransientConnError(err: NodeJS.ErrnoException): boolean {
  */
 const withQuietErrors: NonNullable<ProxyOptions["configure"]> = (proxy) => {
   const origEmit = proxy.emit;
-  proxy.emit = function (event: string, ...rest) {
+  proxy.emit = function (this: typeof proxy, event: string, ...rest) {
     if (
       event === "error" &&
       isTransientConnError(rest[0] as NodeJS.ErrnoException)
@@ -62,6 +63,7 @@ const withQuietErrors: NonNullable<ProxyOptions["configure"]> = (proxy) => {
 export default defineConfig(() => {
   const envBase = process.env.MILAIDY_CONTROL_UI_BASE_PATH?.trim();
   const base = envBase ? normalizeBase(envBase) : "./";
+  const apiPort = process.env.MILAIDY_API_PORT || "31337";
   return {
     base,
     publicDir: path.resolve(here, "public"),
@@ -75,16 +77,16 @@ export default defineConfig(() => {
     },
     server: {
       host: true,
-      port: 2138,
+      port: 18789,
       strictPort: false,
       proxy: {
         "/api": {
-          target: "http://localhost:31337",
+          target: `http://127.0.0.1:${apiPort}`,
           changeOrigin: true,
           configure: withQuietErrors,
         },
         "/ws": {
-          target: "ws://localhost:31337",
+          target: `ws://127.0.0.1:${apiPort}`,
           ws: true,
           configure: withQuietErrors,
         },

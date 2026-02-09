@@ -16,6 +16,8 @@ const EXAMPLES = [
   ["milaidy config get agents.defaults.model.primary", "Read a config value."],
   ["milaidy models", "Show configured model providers."],
   ["milaidy plugins list", "List available plugins."],
+  ["milaidy update", "Check for and install the latest version."],
+  ["milaidy update channel beta", "Switch to the beta release channel."],
 ] as const;
 
 export function configureProgramHelp(program: Command, programVersion: string) {

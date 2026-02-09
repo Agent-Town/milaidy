@@ -42,8 +42,13 @@ export function registerPluginsCli(program: Command): void {
       const { getRegistryPlugins, searchPlugins } = await import(
         "../services/registry-client.js"
       );
+      const { listInstalledPlugins } = await import(
+        "../services/plugin-installer.js"
+      );
 
       const limit = clampInt(opts.limit, 1, 500, 30);
+      const installed = await listInstalledPlugins();
+      const installedNames = new Set(installed.map((p) => p.name));
 
       if (opts.query) {
         const results = await searchPlugins(opts.query, limit);
@@ -62,8 +67,12 @@ export function registerPluginsCli(program: Command): void {
           if (r.supports.v1) versionBadges.push("v1");
           if (r.supports.v2) versionBadges.push("v2");
 
+          const badge = installedNames.has(r.name)
+            ? chalk.green(" ✓ installed")
+            : "";
+
           console.log(
-            `  ${chalk.cyan(r.name)} ${r.latestVersion ? chalk.dim(`v${r.latestVersion}`) : ""}`,
+            `  ${chalk.cyan(r.name)} ${r.latestVersion ? chalk.dim(`v${r.latestVersion}`) : ""}${badge}`,
           );
           if (r.description) {
             console.log(`    ${r.description}`);
@@ -84,8 +93,11 @@ export function registerPluginsCli(program: Command): void {
         const registry = await getRegistryPlugins();
         const all = Array.from(registry.values());
 
+        const installedCount = all.filter((p) =>
+          installedNames.has(p.name),
+        ).length;
         console.log(
-          `\n${chalk.bold(`${all.length} plugins available in registry:`)}\n`,
+          `\n${chalk.bold(`${all.length} plugins available in registry`)}${installedCount > 0 ? chalk.green(` (${installedCount} installed)`) : ""}${chalk.bold(":")}\n`,
         );
 
         const sorted = all
@@ -94,7 +106,10 @@ export function registerPluginsCli(program: Command): void {
 
         for (const plugin of sorted) {
           const desc = plugin.description ? ` — ${plugin.description}` : "";
-          console.log(`  ${chalk.cyan(plugin.name)}${chalk.dim(desc)}`);
+          const badge = installedNames.has(plugin.name)
+            ? chalk.green(" ✓")
+            : "";
+          console.log(`  ${chalk.cyan(plugin.name)}${badge}${chalk.dim(desc)}`);
         }
 
         if (all.length > limit) {
@@ -331,4 +346,336 @@ export function registerPluginsCli(program: Command): void {
       const registry = await refreshRegistry();
       console.log(`${chalk.green("Done!")} ${registry.size} plugins loaded.\n`);
     });
+
+  // ── test ─────────────────────────────────────────────────────────────
+  pluginsCommand
+    .command("test")
+    .description(
+      "Validate custom drop-in plugins in ~/.milaidy/plugins/custom/",
+    )
+    .action(async () => {
+      const nodePath = await import("node:path");
+      const { pathToFileURL } = await import("node:url");
+      const fsPromises = await import("node:fs/promises");
+      const { resolveStateDir, resolveUserPath } = await import(
+        "../config/paths.js"
+      );
+      const { loadMilaidyConfig } = await import("../config/config.js");
+      const { CUSTOM_PLUGINS_DIRNAME, scanDropInPlugins, resolvePackageEntry } =
+        await import("../runtime/eliza.js");
+
+      const customDir = nodePath.join(
+        resolveStateDir(),
+        CUSTOM_PLUGINS_DIRNAME,
+      );
+      const scanDirs = [customDir];
+
+      let config: ReturnType<typeof loadMilaidyConfig> | null = null;
+      try {
+        config = loadMilaidyConfig();
+      } catch (err) {
+        console.log(
+          chalk.dim(
+            `  (Could not read milaidy.json: ${err instanceof Error ? err.message : String(err)} — scanning default directory only)\n`,
+          ),
+        );
+      }
+      for (const p of config?.plugins?.load?.paths ?? []) {
+        scanDirs.push(resolveUserPath(p));
+      }
+
+      console.log(
+        `\n${chalk.bold("Custom plugins directory:")} ${chalk.dim(customDir)}\n`,
+      );
+
+      const candidates: Array<{
+        name: string;
+        installPath: string;
+        version: string;
+      }> = [];
+      for (const dir of scanDirs) {
+        for (const [name, record] of Object.entries(
+          await scanDropInPlugins(dir),
+        )) {
+          candidates.push({
+            name,
+            installPath: record.installPath ?? "",
+            version: record.version ?? "",
+          });
+        }
+      }
+
+      if (candidates.length === 0) {
+        console.log("  No custom plugins found.\n");
+        console.log(
+          chalk.dim(
+            `  Drop a plugin directory into ${customDir} and run this command again.\n`,
+          ),
+        );
+        return;
+      }
+
+      console.log(
+        `${chalk.bold(`Found ${candidates.length} custom plugin(s):`)}\n`,
+      );
+
+      let validCount = 0;
+      let failedCount = 0;
+
+      const fail = (msg: string) => {
+        console.log(`    ${chalk.red("✗")} ${msg}`);
+        failedCount++;
+        console.log();
+      };
+
+      for (const candidate of candidates) {
+        const ver =
+          candidate.version !== "0.0.0"
+            ? chalk.dim(` v${candidate.version}`)
+            : "";
+        console.log(`  ${chalk.cyan(candidate.name)}${ver}`);
+        console.log(`    ${chalk.dim("Path:")} ${candidate.installPath}`);
+
+        let entryPoint: string;
+        try {
+          entryPoint = await resolvePackageEntry(candidate.installPath);
+        } catch (err) {
+          fail(
+            `Entry point failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+
+        console.log(
+          `    ${chalk.dim("Entry:")} ${nodePath.relative(candidate.installPath, entryPoint)}`,
+        );
+
+        try {
+          await fsPromises.access(entryPoint);
+        } catch {
+          fail(`File not found: ${entryPoint}`);
+          continue;
+        }
+
+        let mod: Record<string, unknown>;
+        try {
+          mod = (await import(pathToFileURL(entryPoint).href)) as Record<
+            string,
+            unknown
+          >;
+        } catch (err) {
+          fail(
+            `Import failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+
+        const plugin = findPluginExport(mod);
+        if (plugin) {
+          console.log(
+            `    ${chalk.green("✓ Valid plugin")} — ${plugin.name}: ${chalk.dim(plugin.description)}`,
+          );
+          validCount++;
+        } else {
+          fail(
+            "No valid Plugin export — needs { name: string, description: string }",
+          );
+          continue;
+        }
+        console.log();
+      }
+
+      const parts: string[] = [];
+      if (validCount > 0) parts.push(chalk.green(`${validCount} valid`));
+      if (failedCount > 0) parts.push(chalk.red(`${failedCount} failed`));
+      console.log(
+        `  ${chalk.bold("Summary:")} ${parts.join(", ")} out of ${candidates.length}\n`,
+      );
+    });
+
+  // ── add-path ────────────────────────────────────────────────────────
+  pluginsCommand
+    .command("add-path <path>")
+    .description("Register an additional plugin search directory in config")
+    .action(async (rawPath: string) => {
+      const _nodePath = await import("node:path");
+      const nodeFs = await import("node:fs");
+      const { resolveUserPath } = await import("../config/paths.js");
+      const { loadMilaidyConfig, saveMilaidyConfig } = await import(
+        "../config/config.js"
+      );
+
+      const resolved = resolveUserPath(rawPath);
+
+      if (
+        !nodeFs.existsSync(resolved) ||
+        !nodeFs.statSync(resolved).isDirectory()
+      ) {
+        console.log(
+          `\n${chalk.red("Error:")} ${resolved} is not a directory.\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      let config: ReturnType<typeof loadMilaidyConfig>;
+      try {
+        config = loadMilaidyConfig();
+      } catch {
+        config = {} as ReturnType<typeof loadMilaidyConfig>;
+      }
+
+      if (!config.plugins) config.plugins = {};
+      if (!config.plugins.load) config.plugins.load = {};
+      if (!config.plugins.load.paths) config.plugins.load.paths = [];
+
+      const existing = config.plugins.load.paths.map(resolveUserPath);
+      if (existing.includes(resolved)) {
+        console.log(`\n${chalk.yellow("Already registered:")} ${rawPath}\n`);
+        return;
+      }
+
+      config.plugins.load.paths.push(rawPath);
+      saveMilaidyConfig(config);
+
+      console.log(`\n${chalk.green("Added:")} ${rawPath} → ${resolved}`);
+      console.log(
+        chalk.dim("Restart your agent to load plugins from this path.\n"),
+      );
+    });
+
+  // ── paths ───────────────────────────────────────────────────────────
+  pluginsCommand
+    .command("paths")
+    .description("List all plugin search directories and their contents")
+    .action(async () => {
+      const nodePath = await import("node:path");
+      const { resolveStateDir, resolveUserPath } = await import(
+        "../config/paths.js"
+      );
+      const { loadMilaidyConfig } = await import("../config/config.js");
+      const { CUSTOM_PLUGINS_DIRNAME, scanDropInPlugins } = await import(
+        "../runtime/eliza.js"
+      );
+
+      let config: ReturnType<typeof loadMilaidyConfig> | null = null;
+      try {
+        config = loadMilaidyConfig();
+      } catch {
+        // No config
+      }
+
+      const customDir = nodePath.join(
+        resolveStateDir(),
+        CUSTOM_PLUGINS_DIRNAME,
+      );
+
+      const dirs: Array<{ label: string; path: string; origin: string }> = [
+        { label: customDir, path: customDir, origin: "custom" },
+      ];
+      for (const p of config?.plugins?.load?.paths ?? []) {
+        dirs.push({ label: p, path: resolveUserPath(p), origin: "config" });
+      }
+
+      console.log(`\n${chalk.bold("Plugin search directories:")}\n`);
+
+      for (const dir of dirs) {
+        const records = await scanDropInPlugins(dir.path);
+        const count = Object.keys(records).length;
+        const badge = chalk.dim(`[${dir.origin}]`);
+        const countStr =
+          count > 0
+            ? chalk.green(`${count} plugin${count !== 1 ? "s" : ""}`)
+            : chalk.dim("empty");
+
+        console.log(`  ${badge}  ${dir.label}  (${countStr})`);
+
+        for (const [name, record] of Object.entries(records)) {
+          const ver = record.version !== "0.0.0" ? ` v${record.version}` : "";
+          console.log(`         ${chalk.cyan(name)}${chalk.dim(ver)}`);
+        }
+      }
+      console.log();
+    });
+
+  // ── open ────────────────────────────────────────────────────────────
+  pluginsCommand
+    .command("open [name-or-path]")
+    .description(
+      "Open a plugin directory (or the custom plugins folder) in your editor",
+    )
+    .action(async (nameOrPath?: string) => {
+      const nodePath = await import("node:path");
+      const nodeFs = await import("node:fs");
+      const { execSync } = await import("node:child_process");
+      const { resolveStateDir, resolveUserPath } = await import(
+        "../config/paths.js"
+      );
+      const { CUSTOM_PLUGINS_DIRNAME, scanDropInPlugins } = await import(
+        "../runtime/eliza.js"
+      );
+
+      const customDir = nodePath.join(
+        resolveStateDir(),
+        CUSTOM_PLUGINS_DIRNAME,
+      );
+
+      let targetDir: string;
+
+      if (!nameOrPath) {
+        targetDir = customDir;
+      } else if (
+        nodeFs.existsSync(resolveUserPath(nameOrPath)) &&
+        nodeFs.statSync(resolveUserPath(nameOrPath)).isDirectory()
+      ) {
+        targetDir = resolveUserPath(nameOrPath);
+      } else {
+        // Treat as a plugin name — search the custom dir
+        const records = await scanDropInPlugins(customDir);
+        const match = records[nameOrPath];
+        if (match?.installPath) {
+          targetDir = match.installPath;
+        } else {
+          console.log(
+            `\n${chalk.red("Not found:")} "${nameOrPath}" is not a path or known custom plugin.`,
+          );
+          console.log(
+            chalk.dim(
+              `Custom plugins: ${Object.keys(records).join(", ") || "(none)"}\n`,
+            ),
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      const editor = process.env.EDITOR || "code";
+      console.log(`\nOpening ${chalk.cyan(targetDir)} with ${editor}...\n`);
+
+      try {
+        execSync(`${editor} "${targetDir}"`, { stdio: "inherit" });
+      } catch {
+        // Some editors (like code) return immediately and that's fine.
+        // If the command actually fails, the user will see it.
+      }
+    });
+}
+
+/** Find the first export that looks like a Plugin ({ name, description }). */
+export function findPluginExport(
+  mod: Record<string, unknown>,
+): { name: string; description: string } | null {
+  const isPlugin = (v: unknown): v is { name: string; description: string } =>
+    v !== null &&
+    typeof v === "object" &&
+    typeof (v as Record<string, unknown>).name === "string" &&
+    typeof (v as Record<string, unknown>).description === "string";
+
+  if (isPlugin(mod.default)) return mod.default;
+  if (isPlugin(mod.plugin)) return mod.plugin;
+  if (isPlugin(mod)) return mod as { name: string; description: string };
+  for (const value of Object.values(mod)) {
+    if (isPlugin(value)) return value;
+  }
+  return null;
 }

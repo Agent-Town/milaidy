@@ -5,6 +5,7 @@ import { registerDashboardCommand } from "./register.dashboard.js";
 import { registerSetupCommand } from "./register.setup.js";
 import { registerStartCommand } from "./register.start.js";
 import { registerSubCliCommands } from "./register.subclis.js";
+import { registerUpdateCommand } from "./register.update.js";
 
 export function registerProgramCommands(
   program: Command,
@@ -15,5 +16,6 @@ export function registerProgramCommands(
   registerConfigureCommand(program);
   registerConfigCli(program);
   registerDashboardCommand(program);
+  registerUpdateCommand(program);
   registerSubCliCommands(program, argv);
 }

@@ -1,0 +1,319 @@
+name: Nightly Build
+
+# Automated nightly builds from the dev branch.
+# Publishes to npm with the "nightly" dist-tag and creates a GitHub pre-release.
+# Skips if no new commits since the last nightly.
+on:
+  schedule:
+    # Run at 4:00 AM UTC daily
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force nightly build even if no new commits"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Check for new commits ───────────────────────────────────────────────
+  check-commits:
+    name: Check for new commits
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_commits: ${{ steps.check.outputs.has_new_commits }}
+      short_sha: ${{ steps.check.outputs.short_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Check for new commits since last nightly
+        id: check
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ inputs.force }}" == "true" ]]; then
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            echo "Forced build — skipping commit check"
+            exit 0
+          fi
+
+          # Find the latest nightly tag
+          LAST_NIGHTLY=$(git tag -l 'v*-nightly.*' --sort=-v:refname | head -1)
+
+          if [[ -z "$LAST_NIGHTLY" ]]; then
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            echo "No previous nightly tag found — building"
+            exit 0
+          fi
+
+          # Check if there are commits between last nightly and HEAD
+          COMMIT_COUNT=$(git rev-list "${LAST_NIGHTLY}..HEAD" --count)
+
+          if [[ "$COMMIT_COUNT" -eq 0 ]]; then
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            echo "No new commits since $LAST_NIGHTLY — skipping"
+          else
+            echo "has_new_commits=true" >> "$GITHUB_OUTPUT"
+            echo "$COMMIT_COUNT new commits since $LAST_NIGHTLY"
+          fi
+
+  # ── Build & Test ────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    needs: check-commits
+    if: needs.check-commits.outputs.has_new_commits == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      nightly_version: ${{ steps.version.outputs.nightly_version }}
+      nightly_tag: ${{ steps.version.outputs.nightly_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Compute nightly version
+        id: version
+        run: |
+          BASE_VERSION=$(node -p "require('./package.json').version.replace(/-.*/, '')")
+          DATE=$(date -u +%Y%m%d)
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly.${DATE}"
+          NIGHTLY_TAG="v${NIGHTLY_VERSION}"
+
+          echo "nightly_version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "nightly_tag=$NIGHTLY_TAG" >> "$GITHUB_OUTPUT"
+          echo "Nightly version: $NIGHTLY_VERSION"
+
+      - name: Set package version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ steps.version.outputs.nightly_version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Updated package.json version:"
+          node -p "require('./package.json').version"
+
+      - name: Build
+        run: |
+          bunx tsdown
+          node --import tsx scripts/write-build-info.ts
+          echo '{"type":"module"}' > dist/package.json
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Validate package
+        run: |
+          PACK_OUTPUT=$(npm pack --dry-run 2>&1)
+          echo "$PACK_OUTPUT"
+
+          # Verify critical files are included in the package
+          for required in "milaidy.mjs" "dist/index.js" "package.json"; do
+            if ! echo "$PACK_OUTPUT" | grep -q "$required"; then
+              echo "::error::Required file '$required' missing from package contents"
+              exit 1
+            fi
+          done
+
+          # Verify package size is reasonable (not empty, not bloated)
+          SIZE_LINE=$(echo "$PACK_OUTPUT" | grep "total files:" || echo "$PACK_OUTPUT" | tail -1)
+          echo "Pack summary: $SIZE_LINE"
+
+  # ── Publish to npm ──────────────────────────────────────────────────────
+  # Note: This job does a full checkout + rebuild rather than reusing
+  # build-and-test artifacts because npm publish requires the complete
+  # package tree (all `files` entries from package.json), and
+  # setup-node with registry-url configures .npmrc for authentication.
+  publish-npm:
+    name: Publish to npm (nightly)
+    needs: [check-commits, build-and-test]
+    if: needs.check-commits.outputs.has_new_commits == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Set nightly version
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${{ needs.build-and-test.outputs.nightly_version }}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Build
+        run: |
+          bunx tsdown
+          node --import tsx scripts/write-build-info.ts
+          echo '{"type":"module"}' > dist/package.json
+
+      - name: Publish with nightly dist-tag
+        run: npm publish --tag nightly --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Create GitHub pre-release ──────────────────────────────────────────
+  create-release:
+    name: Create GitHub pre-release
+    needs: [check-commits, build-and-test, publish-npm]
+    if: needs.check-commits.outputs.has_new_commits == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Create nightly tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          TAG="${{ needs.build-and-test.outputs.nightly_tag }}"
+
+          # Delete existing tag if it exists (nightly dates can repeat on re-runs)
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          git tag -a "$TAG" -m "Nightly build $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build-and-test.outputs.nightly_tag }}
+          name: "Nightly ${{ needs.build-and-test.outputs.nightly_version }}"
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            ## Nightly Build
+
+            **Version:** `${{ needs.build-and-test.outputs.nightly_version }}`
+            **Commit:** `${{ needs.check-commits.outputs.short_sha }}`
+            **Channel:** nightly
+
+            ### Install
+            ```bash
+            npm install -g milaidy@nightly
+            # or
+            milaidy update --channel nightly
+            ```
+
+            > This is an automated nightly build from the `dev` branch.
+            > It may contain experimental features and known issues.
+            > For stable releases, use `npm install -g milaidy@latest`.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Cleanup old nightlies ──────────────────────────────────────────────
+  cleanup:
+    name: Cleanup old nightly releases
+    needs: create-release
+    if: needs.create-release.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Delete old nightly releases (keep last 14)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List nightly releases sorted by date (oldest first)
+          RELEASES=$(gh release list --json tagName,isPrerelease --limit 100 \
+            | jq -r '.[] | select(.isPrerelease == true and (.tagName | test("nightly"))) | .tagName')
+
+          COUNT=$(echo "$RELEASES" | grep -c . || true)
+          KEEP=14
+
+          if [[ "$COUNT" -le "$KEEP" ]]; then
+            echo "Only $COUNT nightly releases — nothing to clean up"
+            exit 0
+          fi
+
+          DELETE_COUNT=$((COUNT - KEEP))
+          echo "Cleaning up $DELETE_COUNT old nightly releases (keeping $KEEP)"
+
+          echo "$RELEASES" | head -n "$DELETE_COUNT" | while IFS= read -r TAG; do
+            echo "Deleting release: $TAG"
+            gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          done
+
+  # ── Summary ─────────────────────────────────────────────────────────────
+  nightly-summary:
+    name: Nightly Summary
+    if: always()
+    needs: [check-commits, build-and-test, publish-npm, create-release, cleanup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Nightly Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ needs.check-commits.outputs.has_new_commits }}" != "true" ]]; then
+            echo "No new commits — build skipped." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "**Version:** \`${{ needs.build-and-test.outputs.nightly_version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Test | ${{ needs.build-and-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| npm Publish | ${{ needs.publish-npm.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub Release | ${{ needs.create-release.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Cleanup | ${{ needs.cleanup.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "npm install -g milaidy@nightly" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

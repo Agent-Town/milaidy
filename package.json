@@ -1,6 +1,6 @@
 {
   "name": "milaidy",
-  "version": "2.0.0-alpha.6",
+  "version": "2.0.0-alpha.8",
   "description": "cute agents for the acceleration",
   "keywords": [],
   "license": "MIT",
@@ -39,6 +39,7 @@
     "build:desktop": "bun run --cwd apps/app build:electron",
     "build:ios": "bun run --cwd apps/app build:ios",
     "check": "bun run tsgo && bun run format",
+    "typecheck": "tsgo",
     "dev": "node scripts/dev-ui.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:android": "bun run --cwd apps/app android",
@@ -51,7 +52,11 @@
     "docs:list": "node scripts/docs-list.js",
     "format": "biome format .",
     "format:fix": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
     "generate:plugins": "node scripts/generate-plugin-index.js",
+    "learn:loop": "node scripts/knowledge-loop.mjs",
+    "learn:snapshot": "node scripts/knowledge-loop.mjs --full",
     "milaidy": "node scripts/run-node.mjs",
     "prepack": "bun run build",
     "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath git-hooks',{stdio:'ignore'})}catch{}\"",
@@ -90,7 +95,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
-    "@elizaos/core": "^2.0.0-alpha.3",
+    "@elizaos/core": "2.0.0-alpha.10",
     "@elizaos/plugin-acp": "next",
     "@elizaos/plugin-agent-orchestrator": "next",
     "@elizaos/plugin-agent-skills": "next",
@@ -128,20 +133,23 @@
     "@elizaos/plugin-shell": "next",
     "@elizaos/plugin-signal": "next",
     "@elizaos/plugin-slack": "next",
-    "@elizaos/plugin-sql": "next",
+    "@elizaos/plugin-sql": "2.0.0-alpha.10",
     "@elizaos/plugin-telegram": "next",
     "@elizaos/plugin-todo": "next",
     "@elizaos/plugin-trust": "next",
+    "@elizaos/plugin-vercel-ai-gateway": "next",
     "@elizaos/plugin-vision": "next",
     "@elizaos/plugin-whatsapp": "next",
     "@elizaos/plugin-xai": "next",
     "@elizaos/skills": "next",
     "@elizaos/tui": "next",
+    "@homunculuslabs/plugin-zai": "2.0.0-alpha.1",
     "@noble/curves": "^2.0.1",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "dotenv": "^17.2.3",
     "json5": "^2.2.3",
+    "ws": "^8.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -149,6 +157,7 @@
     "@lit-labs/signals": "^0.2.0",
     "@lit/context": "^1.1.6",
     "@types/node": "^25.2.0",
+    "@types/ws": "^8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260202.1",
     "@vitest/coverage-v8": "^4.0.18",
     "lit": "^3.3.2",
@@ -163,13 +172,18 @@
     "qs": "6.14.1",
     "tough-cookie": "4.1.3",
     "drizzle-orm": "0.45.1",
-    "@elizaos/computeruse": "next"
+    "@elizaos/computeruse": "next",
+    "@elizaos/core": "$@elizaos/core",
+    "@elizaos/plugin-sql": "$@elizaos/plugin-sql"
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "trustedDependencies": [
+    "@lydell/node-pty",
+    "@whiskeysockets/baileys",
     "esbuild",
-    "protobufjs"
+    "protobufjs",
+    "sharp"
   ]
 }

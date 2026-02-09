@@ -6,7 +6,7 @@ import { resolveCliName } from "../cli-name.js";
 
 function setProcessTitleForCommand(actionCommand: Command) {
   let current: Command = actionCommand;
-  while (current.parent && current.parent.parent) {
+  while (current.parent?.parent) {
     current = current.parent;
   }
   const name = current.name();
@@ -34,6 +34,11 @@ export function registerPreActionHooks(
       commandPath[0] === "completion";
     if (!hideBanner) {
       emitCliBanner(programVersion);
+
+      const { scheduleUpdateNotification } = await import(
+        "../../services/update-notifier.js"
+      );
+      scheduleUpdateNotification();
     }
     const verbose = getVerboseFlag(argv, { includeDebug: true });
     setVerbose(verbose);

@@ -10,16 +10,16 @@
     "maxSize": 1048576,
     "includes": [
       "**",
-      "!apps/**",
-      "!assets/**",
-      "!dist/**",
-      "!docs/_layouts/**",
-      "!node_modules/**",
-      "!patches/**",
+      "!apps",
+      "!assets",
+      "!dist",
+      "!docs/_layouts",
+      "!node_modules",
+      "!patches",
       "!pnpm-lock.yaml",
-      "!skills/**",
-      "!Swabble/**",
-      "!vendor/**"
+      "!skills",
+      "!Swabble",
+      "!vendor"
     ]
   },
   "assist": {

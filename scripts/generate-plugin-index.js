@@ -46,7 +46,9 @@ function findPluginsDir() {
 
 const pluginsDir = findPluginsDir();
 if (!pluginsDir) {
-  console.error("Could not find plugins/ directory. Run this from a development checkout.");
+  console.error(
+    "Could not find plugins/ directory. Run this from a development checkout.",
+  );
   process.exit(1);
 }
 
@@ -55,16 +57,48 @@ if (!pluginsDir) {
 // ---------------------------------------------------------------------------
 
 const AI_PROVIDERS = new Set([
-  "openai", "anthropic", "groq", "xai", "ollama", "openrouter",
-  "google-genai", "local-ai", "vercel-ai-gateway", "deepseek",
-  "together", "mistral", "cohere", "perplexity", "qwen", "minimax",
+  "openai",
+  "anthropic",
+  "groq",
+  "xai",
+  "ollama",
+  "openrouter",
+  "google-genai",
+  "local-ai",
+  "vercel-ai-gateway",
+  "deepseek",
+  "together",
+  "mistral",
+  "cohere",
+  "perplexity",
+  "qwen",
+  "minimax",
+  "zai",
 ]);
 
 const CONNECTORS = new Set([
-  "telegram", "discord", "slack", "whatsapp", "signal", "imessage",
-  "bluebubbles", "farcaster", "bluesky", "matrix", "nostr", "msteams",
-  "mattermost", "google-chat", "feishu", "line", "zalo", "zalouser",
-  "tlon", "twitch", "nextcloud-talk", "instagram",
+  "telegram",
+  "discord",
+  "slack",
+  "whatsapp",
+  "signal",
+  "imessage",
+  "bluebubbles",
+  "farcaster",
+  "bluesky",
+  "matrix",
+  "nostr",
+  "msteams",
+  "mattermost",
+  "google-chat",
+  "feishu",
+  "line",
+  "zalo",
+  "zalouser",
+  "tlon",
+  "twitch",
+  "nextcloud-talk",
+  "instagram",
 ]);
 
 const DATABASES = new Set(["sql", "localdb", "inmemorydb"]);
@@ -79,7 +113,10 @@ function categorize(id) {
 function findEnvKey(configKeys) {
   return (
     configKeys.find(
-      (k) => k.endsWith("_API_KEY") || k.endsWith("_BOT_TOKEN") || k.endsWith("_TOKEN"),
+      (k) =>
+        k.endsWith("_API_KEY") ||
+        k.endsWith("_BOT_TOKEN") ||
+        k.endsWith("_TOKEN"),
     ) ?? null
   );
 }
@@ -100,9 +137,16 @@ const entries = [];
 for (const dir of fs.readdirSync(pluginsDir).sort()) {
   if (!dir.startsWith("plugin-")) continue;
 
-  const tsPackageJson = path.join(pluginsDir, dir, "typescript", "package.json");
+  const tsPackageJson = path.join(
+    pluginsDir,
+    dir,
+    "typescript",
+    "package.json",
+  );
   const rootPackageJson = path.join(pluginsDir, dir, "package.json");
-  const pkgPath = fs.existsSync(tsPackageJson) ? tsPackageJson : rootPackageJson;
+  const pkgPath = fs.existsSync(tsPackageJson)
+    ? tsPackageJson
+    : rootPackageJson;
 
   if (!fs.existsSync(pkgPath)) continue;
 
@@ -118,6 +162,15 @@ for (const dir of fs.readdirSync(pluginsDir).sort()) {
     const category = categorize(id);
     const envKey = findEnvKey(configKeys);
 
+    // Extract version
+    const version = pkg.version ?? null;
+
+    // Extract plugin dependencies (only @elizaos/plugin-* references)
+    const allDeps = { ...(pkg.dependencies ?? {}), ...(pkg.peerDependencies ?? {}) };
+    const pluginDeps = Object.keys(allDeps)
+      .filter((dep) => dep.startsWith("@elizaos/plugin-"))
+      .map((dep) => dep.replace("@elizaos/plugin-", ""));
+
     entries.push({
       id,
       dirName: dir,
@@ -127,7 +180,10 @@ for (const dir of fs.readdirSync(pluginsDir).sort()) {
       category,
       envKey,
       configKeys,
-      pluginParameters: Object.keys(pluginParams).length > 0 ? pluginParams : undefined,
+      version: version || undefined,
+      pluginDeps: pluginDeps.length > 0 ? pluginDeps : undefined,
+      pluginParameters:
+        Object.keys(pluginParams).length > 0 ? pluginParams : undefined,
     });
   } catch (err) {
     console.warn(`  Skipping ${dir}: ${err.message}`);
@@ -145,5 +201,5 @@ const manifest = {
   plugins: entries,
 };
 
-fs.writeFileSync(outputPath, JSON.stringify(manifest, null, 2) + "\n");
+fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`Generated ${outputPath} (${entries.length} plugins)`);

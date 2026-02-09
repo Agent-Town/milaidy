@@ -182,7 +182,7 @@ function formatContextAsText(ctx: BenchmarkContext): string {
   // Mind2Web: HTML + elements
   if (ctx.html) {
     const preview =
-      ctx.html.length > 3000 ? ctx.html.slice(0, 3000) + "\n..." : ctx.html;
+      ctx.html.length > 3000 ? `${ctx.html.slice(0, 3000)}\n...` : ctx.html;
     sections.push(`\n## Page HTML\n\`\`\`html\n${preview}\n\`\`\``);
   }
 

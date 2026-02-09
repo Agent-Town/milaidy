@@ -120,6 +120,8 @@ describe("plugin loading parity across modes", () => {
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "XAI_API_KEY",
     "OPENROUTER_API_KEY",
+    "AI_GATEWAY_API_KEY",
+    "AIGATEWAY_API_KEY",
     "OLLAMA_BASE_URL",
     "ELIZAOS_CLOUD_API_KEY",
     "ELIZAOS_CLOUD_ENABLED",
@@ -153,7 +155,7 @@ describe("plugin loading parity across modes", () => {
       "@elizaos/plugin-experience",
       "@elizaos/plugin-plugin-manager",
       "@elizaos/plugin-cli",
-      "@elizaos/plugin-code",
+      // "@elizaos/plugin-code", // disabled: Provider spec mismatch
       "@elizaos/plugin-edge-tts",
       "@elizaos/plugin-knowledge",
       "@elizaos/plugin-mcp",
@@ -162,9 +164,9 @@ describe("plugin loading parity across modes", () => {
       "@elizaos/plugin-secrets-manager",
       "@elizaos/plugin-todo",
       "@elizaos/plugin-trust",
-      "@elizaos/plugin-form",
-      "@elizaos/plugin-goals",
-      "@elizaos/plugin-scheduling",
+      // "@elizaos/plugin-form", // disabled: packaging issue
+      // "@elizaos/plugin-goals", // disabled: spec mismatch
+      // "@elizaos/plugin-scheduling", // disabled: packaging issue
     ];
     for (const plugin of essentials) {
       expect(names.has(plugin)).toBe(true);
@@ -175,10 +177,12 @@ describe("plugin loading parity across modes", () => {
     // Simulate a config with an Anthropic key
     process.env.ANTHROPIC_API_KEY = "sk-test-123";
     process.env.OPENAI_API_KEY = "sk-test-456";
+    process.env.AI_GATEWAY_API_KEY = "aigw-test-789";
 
     const names = collectPluginNames({} as MilaidyConfig);
     expect(names.has("@elizaos/plugin-anthropic")).toBe(true);
     expect(names.has("@elizaos/plugin-openai")).toBe(true);
+    expect(names.has("@elizaos/plugin-vercel-ai-gateway")).toBe(true);
     // Plugins not set should not be loaded
     expect(names.has("@elizaos/plugin-groq")).toBe(false);
     expect(names.has("@elizaos/plugin-xai")).toBe(false);
@@ -431,8 +435,10 @@ describe("config path consistency across modes", () => {
     const stateDir = resolveStateDir(env, homedir);
     const configPath = resolveConfigPath(env, stateDir);
 
-    expect(configPath).toBe("/mock/home/.milaidy/milaidy.json");
-    expect(stateDir).toBe("/mock/home/.milaidy");
+    // Normalize for cross-platform: backslashes → slashes, strip Windows drive prefix
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/^[A-Z]:/i, "");
+    expect(norm(configPath)).toBe("/mock/home/.milaidy/milaidy.json");
+    expect(norm(stateDir)).toBe("/mock/home/.milaidy");
   });
 
   it("MILAIDY_STATE_DIR override is respected consistently", async () => {
@@ -445,8 +451,10 @@ describe("config path consistency across modes", () => {
     const stateDir = resolveStateDir(env, homedir);
     const configPath = resolveConfigPath(env, stateDir);
 
-    expect(stateDir).toBe("/custom/state");
-    expect(configPath).toBe("/custom/state/milaidy.json");
+    // Normalize for cross-platform: backslashes → slashes, strip Windows drive prefix
+    const norm = (p: string) => p.replace(/\\/g, "/").replace(/^[A-Z]:/i, "");
+    expect(norm(stateDir)).toBe("/custom/state");
+    expect(norm(configPath)).toBe("/custom/state/milaidy.json");
   });
 });
 

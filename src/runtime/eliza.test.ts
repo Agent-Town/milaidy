@@ -10,14 +10,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { findPluginExport } from "../cli/plugins-cli.js";
 import type { MilaidyConfig } from "../config/config.js";
 import {
   applyChannelSecretsToEnv,
   applyCloudConfigToEnv,
   buildCharacterFromConfig,
+  CUSTOM_PLUGINS_DIRNAME,
   collectPluginNames,
+  mergeDropInPlugins,
   resolvePackageEntry,
   resolvePrimaryModel,
+  scanDropInPlugins,
 } from "./eliza.js";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +59,8 @@ describe("collectPluginNames", () => {
     "GOOGLE_API_KEY",
     "XAI_API_KEY",
     "OPENROUTER_API_KEY",
+    "AI_GATEWAY_API_KEY",
+    "AIGATEWAY_API_KEY",
     "OLLAMA_BASE_URL",
     "ELIZAOS_CLOUD_API_KEY",
     "ELIZAOS_CLOUD_ENABLED",
@@ -75,15 +81,18 @@ describe("collectPluginNames", () => {
     expect(names.has("@elizaos/plugin-shell")).toBe(true);
     expect(names.has("@elizaos/plugin-personality")).toBe(true);
     expect(names.has("@elizaos/plugin-experience")).toBe(true);
-    expect(names.has("@elizaos/plugin-form")).toBe(true);
+    // plugin-form, plugin-goals, plugin-scheduling are currently disabled
+    // in CORE_PLUGINS due to packaging/spec issues
   });
 
   it("adds model-provider plugins when env keys are present", () => {
     process.env.ANTHROPIC_API_KEY = "sk-test";
     process.env.OPENAI_API_KEY = "sk-test";
+    process.env.AI_GATEWAY_API_KEY = "aigw-test";
     const names = collectPluginNames({} as MilaidyConfig);
     expect(names.has("@elizaos/plugin-anthropic")).toBe(true);
     expect(names.has("@elizaos/plugin-openai")).toBe(true);
+    expect(names.has("@elizaos/plugin-vercel-ai-gateway")).toBe(true);
     expect(names.has("@elizaos/plugin-groq")).toBe(false);
   });
 
@@ -567,5 +576,547 @@ describe("resolvePackageEntry", () => {
 
     const entry = await resolvePackageEntry(pkgRoot);
     expect(entry).toBe(path.join(pkgRoot, "dist", "index.js"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scanDropInPlugins
+// ---------------------------------------------------------------------------
+
+describe("scanDropInPlugins", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-dropin-test-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("discovers a plugin directory with package.json", async () => {
+    const dir = path.join(tmpDir, "my-plugin");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "my-custom-plugin", version: "1.2.3" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["my-custom-plugin"]).toBeDefined();
+    expect(records["my-custom-plugin"].source).toBe("path");
+    expect(records["my-custom-plugin"].installPath).toBe(dir);
+    expect(records["my-custom-plugin"].version).toBe("1.2.3");
+  });
+
+  it("discovers multiple plugins", async () => {
+    for (const n of ["a", "b", "c"]) {
+      const dir = path.join(tmpDir, n);
+      await fs.mkdir(dir);
+      await fs.writeFile(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name: n }),
+      );
+    }
+    const records = await scanDropInPlugins(tmpDir);
+    expect(Object.keys(records)).toHaveLength(3);
+    expect(records.a).toBeDefined();
+    expect(records.b).toBeDefined();
+    expect(records.c).toBeDefined();
+  });
+
+  it("handles scoped package names (@org/plugin-name)", async () => {
+    const dir = path.join(tmpDir, "scoped");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "@myorg/plugin-cool", version: "2.0.0" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["@myorg/plugin-cool"]).toBeDefined();
+    expect(records["@myorg/plugin-cool"].version).toBe("2.0.0");
+  });
+
+  it("returns empty record for a nonexistent directory", async () => {
+    const records = await scanDropInPlugins(path.join(tmpDir, "nope"));
+    expect(Object.keys(records)).toHaveLength(0);
+  });
+
+  it("returns empty record for an empty directory", async () => {
+    const records = await scanDropInPlugins(tmpDir);
+    expect(Object.keys(records)).toHaveLength(0);
+  });
+
+  it("ignores plain files (only directories are plugins)", async () => {
+    await fs.writeFile(path.join(tmpDir, "stray.js"), "export default {}");
+    await fs.writeFile(path.join(tmpDir, "readme.md"), "# hi");
+    const records = await scanDropInPlugins(tmpDir);
+    expect(Object.keys(records)).toHaveLength(0);
+  });
+
+  it("uses directory name when no package.json exists", async () => {
+    await fs.mkdir(path.join(tmpDir, "bare-plugin"));
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["bare-plugin"]).toBeDefined();
+    expect(records["bare-plugin"].source).toBe("path");
+    expect(records["bare-plugin"].version).toBe("0.0.0");
+  });
+
+  it("falls back to directory name when name is whitespace-only", async () => {
+    const dir = path.join(tmpDir, "ws-name");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "   ", version: "1.0.0" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["ws-name"]).toBeDefined();
+    expect(records["ws-name"].version).toBe("1.0.0");
+  });
+
+  it("falls back to directory name when name is empty string", async () => {
+    const dir = path.join(tmpDir, "empty-name");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "", version: "3.0.0" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["empty-name"]).toBeDefined();
+  });
+
+  it("falls back to directory name when name is non-string (number)", async () => {
+    const dir = path.join(tmpDir, "num-name");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: 42, version: "1.0.0" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["num-name"]).toBeDefined();
+  });
+
+  it("falls back to directory name when name is null", async () => {
+    const dir = path.join(tmpDir, "null-name");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: null }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["null-name"]).toBeDefined();
+    expect(records["null-name"].version).toBe("0.0.0");
+  });
+
+  it("trims whitespace from name and version", async () => {
+    const dir = path.join(tmpDir, "trimmed");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "  my-plugin  ", version: "  4.0.0  " }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["my-plugin"]).toBeDefined();
+    expect(records["my-plugin"].version).toBe("4.0.0");
+  });
+
+  it("defaults version to 0.0.0 when version field is missing", async () => {
+    const dir = path.join(tmpDir, "no-ver");
+    await fs.mkdir(dir);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "no-ver-plugin" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["no-ver-plugin"].version).toBe("0.0.0");
+  });
+
+  it("handles malformed JSON in package.json", async () => {
+    const dir = path.join(tmpDir, "bad-json");
+    await fs.mkdir(dir);
+    await fs.writeFile(path.join(dir, "package.json"), "{{{NOT JSON");
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["bad-json"]).toBeDefined();
+    expect(records["bad-json"].version).toBe("0.0.0");
+  });
+
+  it("handles empty package.json file", async () => {
+    const dir = path.join(tmpDir, "empty-pkg");
+    await fs.mkdir(dir);
+    await fs.writeFile(path.join(dir, "package.json"), "");
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["empty-pkg"]).toBeDefined();
+  });
+
+  it("handles package.json that is an array (not an object)", async () => {
+    const dir = path.join(tmpDir, "arr-pkg");
+    await fs.mkdir(dir);
+    await fs.writeFile(path.join(dir, "package.json"), "[1, 2, 3]");
+    const records = await scanDropInPlugins(tmpDir);
+    expect(records["arr-pkg"]).toBeDefined();
+  });
+
+  it("only scans immediate children, not nested subdirectories", async () => {
+    const parent = path.join(tmpDir, "parent");
+    const child = path.join(parent, "child");
+    await fs.mkdir(child, { recursive: true });
+    await fs.writeFile(
+      path.join(parent, "package.json"),
+      JSON.stringify({ name: "parent-plugin" }),
+    );
+    await fs.writeFile(
+      path.join(child, "package.json"),
+      JSON.stringify({ name: "child-plugin" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    expect(Object.keys(records)).toHaveLength(1);
+    expect(records["parent-plugin"]).toBeDefined();
+    expect(records["child-plugin"]).toBeUndefined();
+  });
+
+  it("last plugin wins when two directories produce the same name", async () => {
+    // Two directories with different dir names but same package name
+    const dir1 = path.join(tmpDir, "aaa-first");
+    const dir2 = path.join(tmpDir, "zzz-second");
+    await fs.mkdir(dir1);
+    await fs.mkdir(dir2);
+    await fs.writeFile(
+      path.join(dir1, "package.json"),
+      JSON.stringify({ name: "dupe-plugin", version: "1.0.0" }),
+    );
+    await fs.writeFile(
+      path.join(dir2, "package.json"),
+      JSON.stringify({ name: "dupe-plugin", version: "2.0.0" }),
+    );
+    const records = await scanDropInPlugins(tmpDir);
+    // Both dirs have same package name — the last one iterated wins
+    expect(records["dupe-plugin"]).toBeDefined();
+    // We don't assert which version wins (depends on readdir order),
+    // but there should be exactly one entry
+    expect(Object.keys(records)).toHaveLength(1);
+  });
+
+  it("CUSTOM_PLUGINS_DIRNAME is plugins/custom", () => {
+    expect(CUSTOM_PLUGINS_DIRNAME).toBe("plugins/custom");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeDropInPlugins
+// ---------------------------------------------------------------------------
+
+describe("mergeDropInPlugins", () => {
+  function makeRecord(installPath: string, version = "1.0.0") {
+    return { source: "path" as const, installPath, version };
+  }
+
+  it("accepts a drop-in plugin that doesn't collide with anything", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {};
+    const { accepted, skipped } = mergeDropInPlugins({
+      dropInRecords: { "my-plugin": makeRecord("/tmp/my-plugin") },
+      installRecords,
+      corePluginNames: new Set(["@elizaos/plugin-sql"]),
+      denyList: new Set(),
+      pluginsToLoad,
+    });
+    expect(accepted).toEqual(["my-plugin"]);
+    expect(skipped).toHaveLength(0);
+    expect(pluginsToLoad.has("my-plugin")).toBe(true);
+    expect(installRecords["my-plugin"]).toBeDefined();
+  });
+
+  it("skips plugins in the deny list", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {};
+    const { accepted } = mergeDropInPlugins({
+      dropInRecords: { "blocked-plugin": makeRecord("/tmp/blocked") },
+      installRecords,
+      corePluginNames: new Set(),
+      denyList: new Set(["blocked-plugin"]),
+      pluginsToLoad,
+    });
+    expect(accepted).toHaveLength(0);
+    expect(pluginsToLoad.has("blocked-plugin")).toBe(false);
+    expect(installRecords["blocked-plugin"]).toBeUndefined();
+  });
+
+  it("skips plugins that collide with core plugin names and returns warning", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {};
+    const { accepted, skipped } = mergeDropInPlugins({
+      dropInRecords: { "@elizaos/plugin-sql": makeRecord("/tmp/fake-sql") },
+      installRecords,
+      corePluginNames: new Set(["@elizaos/plugin-sql"]),
+      denyList: new Set(),
+      pluginsToLoad,
+    });
+    expect(accepted).toHaveLength(0);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toContain("collides with core plugin");
+    expect(pluginsToLoad.has("@elizaos/plugin-sql")).toBe(false);
+  });
+
+  it("skips plugins that already have an install record", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {
+      "already-installed": makeRecord("/existing/path"),
+    };
+    const { accepted } = mergeDropInPlugins({
+      dropInRecords: { "already-installed": makeRecord("/tmp/dupe") },
+      installRecords,
+      corePluginNames: new Set(),
+      denyList: new Set(),
+      pluginsToLoad,
+    });
+    expect(accepted).toHaveLength(0);
+    // Original install record is preserved, not overwritten
+    expect(installRecords["already-installed"].installPath).toBe(
+      "/existing/path",
+    );
+  });
+
+  it("handles multiple plugins with mixed outcomes", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {
+      "pre-existing": makeRecord("/existing"),
+    };
+    const { accepted, skipped } = mergeDropInPlugins({
+      dropInRecords: {
+        "good-plugin": makeRecord("/tmp/good"),
+        "denied-one": makeRecord("/tmp/denied"),
+        "@elizaos/plugin-sql": makeRecord("/tmp/core-collision"),
+        "pre-existing": makeRecord("/tmp/dupe"),
+      },
+      installRecords,
+      corePluginNames: new Set(["@elizaos/plugin-sql"]),
+      denyList: new Set(["denied-one"]),
+      pluginsToLoad,
+    });
+    expect(accepted).toEqual(["good-plugin"]);
+    expect(skipped).toHaveLength(1); // only core collision gets a warning
+    expect(pluginsToLoad.has("good-plugin")).toBe(true);
+    expect(pluginsToLoad.has("denied-one")).toBe(false);
+    expect(pluginsToLoad.has("@elizaos/plugin-sql")).toBe(false);
+    expect(pluginsToLoad.has("pre-existing")).toBe(false);
+  });
+
+  it("returns empty when no drop-in records are provided", () => {
+    const pluginsToLoad = new Set<string>();
+    const installRecords: Record<string, ReturnType<typeof makeRecord>> = {};
+    const { accepted, skipped } = mergeDropInPlugins({
+      dropInRecords: {},
+      installRecords,
+      corePluginNames: new Set(),
+      denyList: new Set(),
+      pluginsToLoad,
+    });
+    expect(accepted).toHaveLength(0);
+    expect(skipped).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findPluginExport
+// ---------------------------------------------------------------------------
+
+describe("findPluginExport", () => {
+  it("finds plugin from default export", () => {
+    const result = findPluginExport({
+      default: { name: "test", description: "a test plugin" },
+    });
+    expect(result).toEqual({ name: "test", description: "a test plugin" });
+  });
+
+  it("finds plugin from named 'plugin' export", () => {
+    const result = findPluginExport({
+      plugin: { name: "named", description: "named export" },
+    });
+    expect(result).toEqual({ name: "named", description: "named export" });
+  });
+
+  it("prefers default over named plugin export", () => {
+    const result = findPluginExport({
+      default: { name: "from-default", description: "d" },
+      plugin: { name: "from-named", description: "n" },
+    });
+    expect(result?.name).toBe("from-default");
+  });
+
+  it("finds plugin from module-level CJS pattern", () => {
+    const mod = {
+      name: "cjs-mod",
+      description: "cjs module pattern",
+    } as Record<string, unknown>;
+    const result = findPluginExport(mod);
+    expect(result?.name).toBe("cjs-mod");
+  });
+
+  it("finds plugin from arbitrary named export", () => {
+    const result = findPluginExport({
+      myCustomPlugin: { name: "custom", description: "arbitrary named" },
+      someOther: "not a plugin",
+    });
+    expect(result).toEqual({ name: "custom", description: "arbitrary named" });
+  });
+
+  it("returns null when no valid export exists", () => {
+    const result = findPluginExport({
+      default: "not an object",
+      foo: 42,
+      bar: null,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null for empty module", () => {
+    expect(findPluginExport({})).toBeNull();
+  });
+
+  it("rejects object with name but no description", () => {
+    const result = findPluginExport({
+      default: { name: "incomplete" },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("rejects object with description but no name", () => {
+    const result = findPluginExport({
+      default: { description: "no name" },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("rejects null default export", () => {
+    const result = findPluginExport({ default: null });
+    expect(result).toBeNull();
+  });
+
+  it("rejects undefined default export", () => {
+    const result = findPluginExport({ default: undefined });
+    expect(result).toBeNull();
+  });
+
+  it("rejects name: number (non-string)", () => {
+    const result = findPluginExport({
+      default: { name: 42, description: "has desc" },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("accepts plugin with extra fields beyond name/description", () => {
+    const result = findPluginExport({
+      default: {
+        name: "rich",
+        description: "rich plugin",
+        init: () => {},
+        actions: [],
+      },
+    });
+    expect(result?.name).toBe("rich");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end import chain (resolvePackageEntry + import)
+// ---------------------------------------------------------------------------
+
+describe("end-to-end import chain", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "eliza-plugin-e2e-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function writePlugin(dir: string, code: string): Promise<string> {
+    const distDir = path.join(dir, "dist");
+    await fs.mkdir(distDir, { recursive: true });
+    const filePath = path.join(distDir, "index.js");
+    await fs.writeFile(filePath, code);
+    await fs.writeFile(
+      path.join(dir, "package.json"),
+      JSON.stringify({ name: "test-plugin", main: "dist/index.js" }),
+    );
+    return filePath;
+  }
+
+  it("resolves entry point and imports a default-exported plugin", async () => {
+    const pluginDir = path.join(tmpDir, "default-export");
+    await writePlugin(
+      pluginDir,
+      `export default { name: "hello", description: "world" };`,
+    );
+    const entry = await resolvePackageEntry(pluginDir);
+    expect(entry).toBe(path.join(pluginDir, "dist", "index.js"));
+
+    const { pathToFileURL } = await import("node:url");
+    const mod = await import(pathToFileURL(entry).href);
+    expect(mod.default).toBeDefined();
+    expect(mod.default.name).toBe("hello");
+    expect(mod.default.description).toBe("world");
+  });
+
+  it("resolves entry point from exports map", async () => {
+    const pluginDir = path.join(tmpDir, "exports-map");
+    const distDir = path.join(pluginDir, "dist");
+    await fs.mkdir(distDir, { recursive: true });
+    await fs.writeFile(
+      path.join(distDir, "index.js"),
+      `export const plugin = { name: "named", description: "via exports map" };`,
+    );
+    await fs.writeFile(
+      path.join(pluginDir, "package.json"),
+      JSON.stringify({ exports: { ".": "./dist/index.js" } }),
+    );
+    const entry = await resolvePackageEntry(pluginDir);
+    expect(entry).toBe(path.resolve(pluginDir, "./dist/index.js"));
+
+    const { pathToFileURL } = await import("node:url");
+    const mod = await import(pathToFileURL(entry).href);
+    expect(mod.plugin.name).toBe("named");
+  });
+
+  it("imports a plugin with only named exports (no default)", async () => {
+    const pluginDir = path.join(tmpDir, "named-only");
+    await writePlugin(
+      pluginDir,
+      `export const myPlugin = { name: "named-only", description: "no default" };`,
+    );
+
+    const { pathToFileURL } = await import("node:url");
+    const entry = await resolvePackageEntry(pluginDir);
+    const mod = await import(pathToFileURL(entry).href);
+    expect(mod.default).toBeUndefined();
+    expect(mod.myPlugin.name).toBe("named-only");
+    expect(mod.myPlugin.description).toBe("no default");
+  });
+
+  it("returns fallback path when package.json has no main/exports", async () => {
+    const pluginDir = path.join(tmpDir, "no-main");
+    await fs.mkdir(pluginDir, { recursive: true });
+    await fs.writeFile(
+      path.join(pluginDir, "package.json"),
+      JSON.stringify({ name: "bare" }),
+    );
+    const entry = await resolvePackageEntry(pluginDir);
+    // Should fall back to dist/index.js (file may not exist, but path is correct)
+    expect(entry).toBe(path.join(pluginDir, "dist", "index.js"));
+  });
+
+  it("rejects import when entry point file does not exist", async () => {
+    const pluginDir = path.join(tmpDir, "missing-dist");
+    await fs.mkdir(pluginDir, { recursive: true });
+    await fs.writeFile(
+      path.join(pluginDir, "package.json"),
+      JSON.stringify({ name: "ghost", main: "dist/index.js" }),
+    );
+
+    const entry = await resolvePackageEntry(pluginDir);
+    const { pathToFileURL } = await import("node:url");
+
+    await expect(import(pathToFileURL(entry).href)).rejects.toThrow();
   });
 });

@@ -20,6 +20,26 @@ test.describe("Navigation", () => {
     await expect(page.getByText("Manage plugins and integrations")).toBeVisible();
   });
 
+  test("navigates to workbench tab", async ({ page }) => {
+    await mockApi(page, { onboardingComplete: true, agentState: "running" });
+    await page.goto("/");
+
+    await page.getByRole("link", { name: "Workbench" }).click();
+
+    await expect(page).toHaveURL(/\/workbench/);
+    await expect(page.getByRole("heading", { name: "Workbench" })).toBeVisible();
+  });
+
+  test("navigates to marketplace tab", async ({ page }) => {
+    await mockApi(page, { onboardingComplete: true, agentState: "running" });
+    await page.goto("/");
+
+    await page.getByRole("link", { name: "Marketplace" }).click();
+
+    await expect(page).toHaveURL(/\/marketplace/);
+    await expect(page.getByRole("heading", { name: "Marketplace" })).toBeVisible();
+  });
+
   test("navigates to skills tab", async ({ page }) => {
     await mockApi(page, { onboardingComplete: true, agentState: "running" });
     await page.goto("/");
@@ -27,7 +47,7 @@ test.describe("Navigation", () => {
     await page.getByRole("link", { name: "Skills" }).click();
 
     await expect(page).toHaveURL(/\/skills/);
-    await expect(page.getByText("View available agent skills")).toBeVisible();
+    await expect(page.getByText("View loaded skills and install more from GitHub/Skills marketplace.")).toBeVisible();
   });
 
   test("navigates to config tab", async ({ page }) => {

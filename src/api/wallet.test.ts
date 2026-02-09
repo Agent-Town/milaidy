@@ -23,7 +23,6 @@ import {
   validateEvmPrivateKey,
   validatePrivateKey,
   validateSolanaPrivateKey,
-  type WalletChain,
   type WalletKeys,
 } from "./wallet.js";
 
