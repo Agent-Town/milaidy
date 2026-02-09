@@ -891,7 +891,7 @@ function error(res: http.ServerResponse, message: string, status = 400): void {
  * changes to the config schema infrastructure.
  */
 const SENSITIVE_KEY_RE =
-  /token|password|secret|api.?key|private.?key|seed.?phrase|authorization|connection.?string|credential/i;
+  /password|secret|api.?key|private.?key|seed.?phrase|authorization|connection.?string|credential|(?<!max)tokens?$/i;
 
 /**
  * Replace any non-empty value with "[REDACTED]".  For arrays, each string
@@ -4169,7 +4169,7 @@ async function handleRequest(
   // ── GET /api/mcp/config ──────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/mcp/config") {
     const servers = state.config.mcp?.servers ?? {};
-    json(res, { ok: true, servers });
+    json(res, { ok: true, servers: redactDeep(servers) });
     return;
   }
 
