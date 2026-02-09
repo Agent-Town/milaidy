@@ -283,7 +283,7 @@ jobs:
           DELETE_COUNT=$((COUNT - KEEP))
           echo "Cleaning up $DELETE_COUNT old nightly releases (keeping $KEEP)"
 
-          echo "$RELEASES" | head -n "$DELETE_COUNT" | while IFS= read -r TAG; do
+          echo "$RELEASES" | tail -n "$DELETE_COUNT" | while IFS= read -r TAG; do
             echo "Deleting release: $TAG"
             gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           done
