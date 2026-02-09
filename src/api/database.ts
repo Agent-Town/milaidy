@@ -126,6 +126,63 @@ function buildConnectionString(creds: PostgresCredentials): string {
   return `postgresql://${auth}@${host}:${port}/${database}${sslParam}`;
 }
 
+// ---------------------------------------------------------------------------
+// Host validation — prevent SSRF via database connection endpoints
+// ---------------------------------------------------------------------------
+
+/**
+ * Patterns that match private, loopback, link-local, and cloud metadata
+ * IP ranges.  Connections to these addresses from user-supplied credentials
+ * would allow internal network port scanning and protocol smuggling via the
+ * Postgres wire protocol.
+ */
+const BLOCKED_HOST_PATTERNS: RegExp[] = [
+  /^127\./,                          // IPv4 loopback
+  /^10\./,                           // RFC 1918 Class A
+  /^172\.(1[6-9]|2\d|3[01])\./,     // RFC 1918 Class B
+  /^192\.168\./,                     // RFC 1918 Class C
+  /^169\.254\./,                     // Link-local / cloud metadata
+  /^0\./,                            // "This" network
+  /^::1$/,                           // IPv6 loopback
+  /^fc00:/i,                         // IPv6 ULA
+  /^fe80:/i,                         // IPv6 link-local
+  /^localhost$/i,                    // Loopback hostname
+  /^\[::1\]$/,                       // Bracketed IPv6 loopback
+];
+
+/**
+ * Extract the host from a Postgres connection string or credentials object.
+ * Returns `null` if no host can be determined.
+ */
+function extractHost(creds: PostgresCredentials): string | null {
+  if (creds.connectionString) {
+    try {
+      const url = new URL(creds.connectionString);
+      return url.hostname || null;
+    } catch {
+      return null; // Unparseable — will be rejected
+    }
+  }
+  return creds.host ?? null;
+}
+
+/**
+ * Validate that the target host is not a private/internal address.
+ * Returns an error message if blocked, or `null` if allowed.
+ */
+function validateDbHost(creds: PostgresCredentials): string | null {
+  const host = extractHost(creds);
+  if (!host) {
+    return "Could not determine target host from the provided credentials.";
+  }
+  for (const pattern of BLOCKED_HOST_PATTERNS) {
+    if (pattern.test(host)) {
+      return `Connection to "${host}" is blocked: private/internal addresses are not allowed.`;
+    }
+  }
+  return null;
+}
+
 /** Convert a JS value to a SQL literal for use in raw queries. */
 function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
@@ -343,6 +400,12 @@ async function handlePutConfig(
       );
       return;
     }
+
+    const hostError = validateDbHost(pg);
+    if (hostError) {
+      errorResponse(res, hostError);
+      return;
+    }
   }
 
   // Load current config, merge database section, save
@@ -389,6 +452,13 @@ async function handleTestConnection(
   res: http.ServerResponse,
 ): Promise<void> {
   const body = JSON.parse(await readBody(req)) as PostgresCredentials;
+
+  const hostError = validateDbHost(body);
+  if (hostError) {
+    errorResponse(res, hostError);
+    return;
+  }
+
   const connectionString = buildConnectionString(body);
   const start = Date.now();
 
