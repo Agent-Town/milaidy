@@ -135,20 +135,40 @@ function buildConnectionString(creds: PostgresCredentials): string {
 const dnsLookupAll = promisify(dns.lookup);
 
 /**
- * IP ranges that are ALWAYS blocked — cloud metadata and "this" network.
- * These are never legitimate Postgres targets.
- *
- * Localhost and RFC 1918 are intentionally ALLOWED here because local
- * Postgres is the most common setup.  The SSRF risk from those ranges is
- * low: if an attacker can reach the API they already have local network
- * access.  The real threat is using the server as a proxy to cloud metadata
- * or other non-Postgres internal services.
+ * IP ranges that are ALWAYS blocked regardless of bind address.
+ * Cloud metadata and "this" network are never legitimate Postgres targets.
  */
-const BLOCKED_IP_PATTERNS: RegExp[] = [
+const ALWAYS_BLOCKED_IP_PATTERNS: RegExp[] = [
   /^169\.254\./,                     // Link-local / cloud metadata (AWS, GCP, Azure)
   /^0\./,                            // "This" network
   /^fe80:/i,                         // IPv6 link-local
 ];
+
+/**
+ * Private/internal IP ranges — blocked only when the API is bound to a
+ * non-loopback address (i.e. remotely reachable).  When bound to 127.0.0.1
+ * (the default), these are allowed since local Postgres is the most common
+ * setup and an attacker who can reach the loopback API already has local
+ * network access.
+ */
+const PRIVATE_IP_PATTERNS: RegExp[] = [
+  /^127\./,                          // IPv4 loopback
+  /^10\./,                           // RFC 1918 Class A
+  /^172\.(1[6-9]|2\d|3[01])\./,     // RFC 1918 Class B
+  /^192\.168\./,                     // RFC 1918 Class C
+  /^::1$/,                           // IPv6 loopback
+  /^fc00:/i,                         // IPv6 ULA
+];
+
+/**
+ * Returns true when the API server is bound to a loopback-only address.
+ * In that case, private/internal IP ranges are allowed for DB connections
+ * since only local processes can reach the API.
+ */
+function isApiLoopbackOnly(): boolean {
+  const bind = (process.env.MILAIDY_API_BIND ?? "127.0.0.1").trim() || "127.0.0.1";
+  return bind === "127.0.0.1" || bind === "::1" || bind.toLowerCase() === "localhost";
+}
 
 /**
  * Extract the host from a Postgres connection string or credentials object.
@@ -168,9 +188,13 @@ function extractHost(creds: PostgresCredentials): string | null {
 
 /**
  * Check whether an IP address falls in a blocked range.
+ * When the API is remotely reachable, private ranges are also blocked.
  */
 function isBlockedIp(ip: string): boolean {
-  return BLOCKED_IP_PATTERNS.some((p) => p.test(ip));
+  if (ALWAYS_BLOCKED_IP_PATTERNS.some((p) => p.test(ip))) return true;
+  if (!isApiLoopbackOnly() && PRIVATE_IP_PATTERNS.some((p) => p.test(ip)))
+    return true;
+  return false;
 }
 
 /**
