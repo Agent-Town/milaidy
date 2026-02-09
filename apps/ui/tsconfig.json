@@ -15,8 +15,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false
+    "jsx": "react-jsx"
   },
   "include": ["src/**/*", "vite.config.ts", "vitest.config.ts"]
 }

@@ -1,6 +1,7 @@
 import type { ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
 import { defineConfig, type ProxyOptions } from "vite";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -63,13 +64,11 @@ const withQuietErrors: NonNullable<ProxyOptions["configure"]> = (proxy) => {
 export default defineConfig(() => {
   const envBase = process.env.MILAIDY_CONTROL_UI_BASE_PATH?.trim();
   const base = envBase ? normalizeBase(envBase) : "./";
-  const apiPort = process.env.MILAIDY_API_PORT || "31337";
+  const apiPort = process.env.MILAIDY_API_PORT || "2138";
   return {
     base,
+    plugins: [react()],
     publicDir: path.resolve(here, "public"),
-    optimizeDeps: {
-      include: ["lit/directives/repeat.js"],
-    },
     build: {
       outDir: path.resolve(here, "../dist/control-ui"),
       emptyOutDir: true,
