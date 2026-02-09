@@ -1481,6 +1481,7 @@ export async function startEliza(
   const milaidyPlugin = createMilaidyPlugin({
     workspaceDir,
     bootstrapMaxChars: config.agents?.defaults?.bootstrapMaxChars,
+    enableBootstrapProviders: config.agents?.defaults?.enableBootstrapProviders,
     agentId,
   });
 
@@ -1749,6 +1750,7 @@ export async function startEliza(
             workspaceDir:
               freshConfig.agents?.defaults?.workspace ?? workspaceDir,
             bootstrapMaxChars: freshConfig.agents?.defaults?.bootstrapMaxChars,
+            enableBootstrapProviders: freshConfig.agents?.defaults?.enableBootstrapProviders,
             agentId:
               runtime.character.name?.toLowerCase().replace(/\s+/g, "-") ??
               "main",

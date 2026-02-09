@@ -116,6 +116,19 @@ milaidy --help         # Show all commands
 
 Upgrading? Run `milaidy setup` after updating to refresh the workspace.
 
+### Default ports
+
+When running, Milaidy listens on these local ports:
+
+- **Gateway/Runtime**: `http://localhost:18789` (WebSocket + HTTP API (server))
+- **Dashboard/Control UI**: `http://localhost:2138` (Web interface (client))
+
+Override with environment variables:
+```bash
+export MILAIDY_GATEWAY_PORT=19000  # Change gateway port
+export MILAIDY_PORT=3000           # Change dashboard port
+```
+
 ## Models
 
 Pick any AI provider during onboarding, or configure later.

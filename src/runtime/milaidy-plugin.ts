@@ -6,8 +6,11 @@
  * Memory search/get actions are superseded by plugin-scratchpad.
  */
 
-import type { MessagePayload, Plugin } from "@elizaos/core";
+import type { MessagePayload, Plugin, Provider } from "@elizaos/core";
 import {
+  attachmentsProvider,
+  entitiesProvider,
+  factsProvider,
   getSessionProviders,
   resolveDefaultSessionStorePath,
 } from "@elizaos/core";
@@ -24,6 +27,12 @@ export type MilaidyPluginConfig = {
   bootstrapMaxChars?: number;
   sessionStorePath?: string;
   agentId?: string;
+  /**
+   * Enable bootstrap providers (attachments, entities, facts).
+   * These add context but can consume significant tokens.
+   * @default true
+   */
+  enableBootstrapProviders?: boolean;
 };
 
 export function createMilaidyPlugin(config?: MilaidyPluginConfig): Plugin {
@@ -31,20 +40,28 @@ export function createMilaidyPlugin(config?: MilaidyPluginConfig): Plugin {
   const agentId = config?.agentId ?? "main";
   const sessionStorePath =
     config?.sessionStorePath ?? resolveDefaultSessionStorePath(agentId);
+  const enableBootstrap = config?.enableBootstrapProviders ?? true;
+
+  const baseProviders = [
+    createWorkspaceProvider({
+      workspaceDir,
+      maxCharsPerFile: config?.bootstrapMaxChars,
+    }),
+    createSessionKeyProvider({ defaultAgentId: agentId }),
+    ...getSessionProviders({ storePath: sessionStorePath }),
+  ];
+
+  // Optionally add bootstrap providers (can be heavy for small context windows)
+  const bootstrapProviders = enableBootstrap
+    ? [attachmentsProvider, entitiesProvider, factsProvider]
+    : [];
 
   return {
     name: "milaidy",
     description:
       "Milaidy workspace context, session keys, and lifecycle actions",
 
-    providers: [
-      createWorkspaceProvider({
-        workspaceDir,
-        maxCharsPerFile: config?.bootstrapMaxChars,
-      }),
-      createSessionKeyProvider({ defaultAgentId: agentId }),
-      ...getSessionProviders({ storePath: sessionStorePath }),
-    ],
+    providers: [...baseProviders, ...bootstrapProviders],
 
     actions: [restartAction],
 
