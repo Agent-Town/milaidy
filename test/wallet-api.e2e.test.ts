@@ -8,7 +8,7 @@
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startApiServer } from "../src/api/server.js";
 
 // Load real API keys from the eliza workspace .env
@@ -984,10 +984,10 @@ describe("Key Management E2E", () => {
         "",
         "   ",
         "0xZZZZ",
-        "0x" + "f".repeat(63), // 63 chars, one too short
-        "0x" + "f".repeat(65), // 65 chars, one too long
+        `0x${"f".repeat(63)}`, // 63 chars, one too short
+        `0x${"f".repeat(65)}`, // 65 chars, one too long
         "000InvalidBase58!!!",
-        "0x" + "g".repeat(64), // invalid hex char
+        `0x${"g".repeat(64)}`, // invalid hex char
         "null",
         "undefined",
       ];

@@ -1,6 +1,6 @@
 {
   "name": "milaidy",
-  "version": "2.0.0-alpha.7",
+  "version": "2.0.0-alpha.8",
   "description": "cute agents for the acceleration",
   "keywords": [],
   "license": "MIT",
@@ -93,7 +93,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
-    "@elizaos/core": "2.0.0-alpha.9",
+    "@elizaos/core": "2.0.0-alpha.10",
     "@elizaos/plugin-acp": "next",
     "@elizaos/plugin-agent-orchestrator": "next",
     "@elizaos/plugin-agent-skills": "next",
@@ -131,7 +131,7 @@
     "@elizaos/plugin-shell": "next",
     "@elizaos/plugin-signal": "next",
     "@elizaos/plugin-slack": "next",
-    "@elizaos/plugin-sql": "2.0.0-alpha.8",
+    "@elizaos/plugin-sql": "2.0.0-alpha.10",
     "@elizaos/plugin-telegram": "next",
     "@elizaos/plugin-todo": "next",
     "@elizaos/plugin-trust": "next",

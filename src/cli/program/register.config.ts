@@ -11,7 +11,7 @@ export function registerConfigCli(program: Command) {
     .description("Get a config value")
     .action(async (key: string) => {
       const { loadMilaidyConfig } = await import("../../config/config.js");
-      let milaidyConfig;
+      let milaidyConfig: ReturnType<typeof loadMilaidyConfig> | undefined;
       try {
         milaidyConfig = loadMilaidyConfig();
       } catch (err) {

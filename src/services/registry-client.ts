@@ -85,6 +85,12 @@ export interface RegistryAppInfo {
     v1Version: string | null;
     v2Version: string | null;
   };
+  viewer?: {
+    url: string;
+    embedParams?: Record<string, string>;
+    postMessageAuth?: boolean;
+    sandbox?: string;
+  };
 }
 
 export interface RegistrySearchResult {
@@ -424,6 +430,10 @@ function toAppInfo(p: RegistryPluginInfo): RegistryAppInfo {
     latestVersion: p.npm.v2Version || p.npm.v1Version || p.npm.v0Version,
     supports: p.supports,
     npm: p.npm,
+    // Pass through viewer config from the registry metadata
+    viewer: meta?.launchType === "connect" || meta?.launchType === "local"
+      ? { url: meta?.launchUrl ?? "", sandbox: "allow-scripts allow-same-origin allow-popups" }
+      : undefined,
   };
 }
 

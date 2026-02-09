@@ -271,6 +271,7 @@ export class ElectronCapacitorApp {
 
 // Set a CSP up for our application based on the custom scheme.
 // Allows connections to the embedded API server on localhost and WebSocket.
+// frame-src allows embedding game clients from localhost and known game domains.
 export function setupContentSecurityPolicy(customScheme: string): void {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const base = [
@@ -281,6 +282,7 @@ export function setupContentSecurityPolicy(customScheme: string): void {
       `img-src 'self' ${customScheme}://* data: blob: https://*`,
       `media-src 'self' ${customScheme}://* blob: https://*`,
       `font-src 'self' ${customScheme}://* data:`,
+      `frame-src 'self' http://localhost:* https://*`,
     ].join('; ');
 
     callback({

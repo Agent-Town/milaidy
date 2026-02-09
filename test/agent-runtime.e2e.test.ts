@@ -374,7 +374,7 @@ describe("Agent Runtime E2E", () => {
         });
 
         let resp = "";
-        await runtime.messageService!.handleMessage(runtime, msg, async (c) => {
+        await runtime.messageService?.handleMessage(runtime, msg, async (c) => {
           if (c?.text) resp += c.text;
           return [];
         });
@@ -424,7 +424,7 @@ describe("Agent Runtime E2E", () => {
           },
         });
         let resp = "";
-        await runtime.messageService!.handleMessage(runtime, msg, async (c) => {
+        await runtime.messageService?.handleMessage(runtime, msg, async (c) => {
           if (c?.text) resp += c.text;
           return [];
         });
@@ -447,7 +447,7 @@ describe("Agent Runtime E2E", () => {
           },
         });
         let t1 = "";
-        await runtime.messageService!.handleMessage(
+        await runtime.messageService?.handleMessage(
           runtime,
           msg1,
           async (c) => {
@@ -468,7 +468,7 @@ describe("Agent Runtime E2E", () => {
           },
         });
         let t2 = "";
-        await runtime.messageService!.handleMessage(
+        await runtime.messageService?.handleMessage(
           runtime,
           msg2,
           async (c) => {
@@ -503,7 +503,7 @@ describe("Agent Runtime E2E", () => {
         expect(svc, "AutonomyService must be registered").toBeDefined();
 
         logger.info("[e2e] Starting real autonomy think cycle...");
-        await svc!.performAutonomousThink();
+        await svc?.performAutonomousThink();
         logger.info("[e2e] Autonomy think cycle completed successfully");
         // If we got here without throwing, the full autonomous pipeline worked:
         // prompt generation → model call → response processing → memory storage
@@ -515,13 +515,13 @@ describe("Agent Runtime E2E", () => {
       "autonomy REST endpoint always reports enabled",
       async () => {
         // Autonomy is always enabled — the endpoint is a no-op for backward compat.
-        const get1 = await http$(server!.port, "GET", "/api/agent/autonomy");
+        const get1 = await http$(server?.port, "GET", "/api/agent/autonomy");
         expect(get1.data.enabled).toBe(true);
 
-        await http$(server!.port, "POST", "/api/agent/autonomy", {
+        await http$(server?.port, "POST", "/api/agent/autonomy", {
           enabled: false,
         });
-        const get2 = await http$(server!.port, "GET", "/api/agent/autonomy");
+        const get2 = await http$(server?.port, "GET", "/api/agent/autonomy");
         expect(get2.data.enabled).toBe(true);
       },
     );
@@ -533,7 +533,7 @@ describe("Agent Runtime E2E", () => {
 
   describe("REST API", () => {
     it.skipIf(!hasModelProvider)("GET /api/status", async () => {
-      const { status, data } = await http$(server!.port, "GET", "/api/status");
+      const { status, data } = await http$(server?.port, "GET", "/api/status");
       expect(status).toBe(200);
       expect(data.state).toBe("running");
       expect(typeof data.startedAt).toBe("number");
@@ -543,7 +543,7 @@ describe("Agent Runtime E2E", () => {
       "POST /api/chat returns real response",
       async () => {
         const { status, data } = await http$(
-          server!.port,
+          server?.port,
           "POST",
           "/api/chat",
           { text: "What is 1+1? Number only." },
@@ -558,7 +558,7 @@ describe("Agent Runtime E2E", () => {
       "POST /api/chat rejects empty text",
       async () => {
         expect(
-          (await http$(server!.port, "POST", "/api/chat", { text: "" })).status,
+          (await http$(server?.port, "POST", "/api/chat", { text: "" })).status,
         ).toBe(400);
       },
     );
@@ -567,7 +567,7 @@ describe("Agent Runtime E2E", () => {
       "GET /api/onboarding/options has non-empty arrays",
       async () => {
         const { data } = await http$(
-          server!.port,
+          server?.port,
           "GET",
           "/api/onboarding/options",
         );
@@ -580,32 +580,32 @@ describe("Agent Runtime E2E", () => {
     it.skipIf(!hasModelProvider)(
       "POST /api/onboarding writes agent name",
       async () => {
-        const { data } = await http$(server!.port, "POST", "/api/onboarding", {
+        const { data } = await http$(server?.port, "POST", "/api/onboarding", {
           name: "OnboardTest",
         });
         expect(data.ok).toBe(true);
         expect(
-          (await http$(server!.port, "GET", "/api/status")).data.agentName,
+          (await http$(server?.port, "GET", "/api/status")).data.agentName,
         ).toBe("OnboardTest");
       },
     );
 
     it.skipIf(!hasModelProvider)("PUT /api/config round-trips", async () => {
-      const original = (await http$(server!.port, "GET", "/api/config")).data;
-      await http$(server!.port, "PUT", "/api/config", {
+      const original = (await http$(server?.port, "GET", "/api/config")).data;
+      await http$(server?.port, "PUT", "/api/config", {
         agent: { name: "TempCfg" },
       });
-      const { data } = await http$(server!.port, "GET", "/api/config");
+      const { data } = await http$(server?.port, "GET", "/api/config");
       expect((data as Record<string, Record<string, string>>).agent?.name).toBe(
         "TempCfg",
       );
-      await http$(server!.port, "PUT", "/api/config", original); // restore
+      await http$(server?.port, "PUT", "/api/config", original); // restore
     });
 
     it.skipIf(!hasModelProvider)(
       "GET /api/logs has entries with timestamp/level/message",
       async () => {
-        const entries = (await http$(server!.port, "GET", "/api/logs")).data
+        const entries = (await http$(server?.port, "GET", "/api/logs")).data
           .entries as Array<Record<string, unknown>>;
         expect(entries.length).toBeGreaterThan(0);
         expect(typeof entries[0].timestamp).toBe("number");
@@ -619,7 +619,7 @@ describe("Agent Runtime E2E", () => {
       async () => {
         expect(
           (
-            await http$(server!.port, "PUT", "/api/plugins/fake-plugin", {
+            await http$(server?.port, "PUT", "/api/plugins/fake-plugin", {
               enabled: true,
             })
           ).status,
@@ -630,20 +630,20 @@ describe("Agent Runtime E2E", () => {
     it.skipIf(!hasModelProvider)(
       "pause → resume verifies state change",
       async () => {
-        await http$(server!.port, "POST", "/api/agent/pause");
+        await http$(server?.port, "POST", "/api/agent/pause");
         expect(
-          (await http$(server!.port, "GET", "/api/status")).data.state,
+          (await http$(server?.port, "GET", "/api/status")).data.state,
         ).toBe("paused");
-        await http$(server!.port, "POST", "/api/agent/resume");
+        await http$(server?.port, "POST", "/api/agent/resume");
         expect(
-          (await http$(server!.port, "GET", "/api/status")).data.state,
+          (await http$(server?.port, "GET", "/api/status")).data.state,
         ).toBe("running");
       },
     );
 
     it.skipIf(!hasModelProvider)("404 for unknown route", async () => {
       expect(
-        (await http$(server!.port, "GET", "/api/nonexistent")).status,
+        (await http$(server?.port, "GET", "/api/nonexistent")).status,
       ).toBe(404);
     });
   });
@@ -659,7 +659,7 @@ describe("Agent Runtime E2E", () => {
           const req = http.request(
             {
               hostname: "127.0.0.1",
-              port: server!.port,
+              port: server?.port,
               path: "/api/chat",
               method: "POST",
               headers: {
@@ -707,12 +707,12 @@ describe("Agent Runtime E2E", () => {
         const [statuses, chats] = await Promise.all([
           Promise.all(
             Array.from({ length: 5 }, () =>
-              http$(server!.port, "GET", "/api/status"),
+              http$(server?.port, "GET", "/api/status"),
             ),
           ),
           Promise.all(
             Array.from({ length: 3 }, (_, i) =>
-              http$(server!.port, "POST", "/api/chat", {
+              http$(server?.port, "POST", "/api/chat", {
                 text: `${i + 1}+1=? number only`,
               }),
             ),

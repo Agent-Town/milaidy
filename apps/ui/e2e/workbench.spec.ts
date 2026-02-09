@@ -1,51 +1,95 @@
 import { expect, test } from "@playwright/test";
 import { mockApi } from "./helpers";
 
-test.describe("Workbench page", () => {
-  test("renders summary cards and tasks", async ({ page }) => {
-    await mockApi(page, { onboardingComplete: true, agentState: "running" });
-    await page.goto("/workbench");
+test.describe("Workbench sidebar (right panel on chat tab)", () => {
+  test("shows goals and tasks when agent is running", async ({ page }) => {
+    await mockApi(page, { agentState: "running" });
+    await page.goto("/chat");
 
-    await expect(page.getByRole("heading", { name: "Workbench" })).toBeVisible();
-    await expect(page.getByText("Open Goals")).toBeVisible();
-    await expect(page.getByText("Open Todos")).toBeVisible();
-    await expect(page.getByText("Ship native integrations")).toBeVisible();
-    await expect(page.getByText("Add command palette keyboard flow")).toBeVisible();
+    // The right sidebar should be visible with goals and tasks
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(sidebar).toBeVisible();
+    await expect(sidebar.getByText("Workbench")).toBeVisible();
+
+    // Goals section with default mock data
+    await expect(sidebar.getByText("Ship native integrations")).toBeVisible();
+    await expect(sidebar.getByText("Finalize marketplace UX")).toBeVisible();
+
+    // Tasks section with default mock data
+    await expect(sidebar.getByText("Add command palette keyboard flow")).toBeVisible();
+    await expect(sidebar.getByText("Review plugin trust heuristics")).toBeVisible();
   });
 
-  test("can mark a todo complete", async ({ page }) => {
-    await mockApi(page, { onboardingComplete: true, agentState: "running" });
-    await page.goto("/workbench");
+  test("shows agent-not-running message when stopped", async ({ page }) => {
+    await mockApi(page, { agentState: "not_started" });
+    await page.goto("/chat");
 
-    const checkbox = page.locator("div:has-text('Add command palette keyboard flow') input[type='checkbox']").first();
-    await checkbox.check();
-
-    await expect(checkbox).toBeChecked();
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(sidebar).toBeVisible();
+    await expect(
+      sidebar.getByText("Agent is not running"),
+    ).toBeVisible();
   });
 
-  test("supports goal create/edit and todo quick-add flows", async ({ page }) => {
-    await mockApi(page, { onboardingComplete: true, agentState: "running" });
-    await page.goto("/workbench");
+  test("shows goals-plugin-not-loaded warning when goalsAvailable is false", async ({ page }) => {
+    await mockApi(page, { agentState: "running", goalsAvailable: false });
+    await page.goto("/chat");
 
-    // Create goal
-    await page.getByPlaceholder("Goal name").fill("Stabilize share ingestion");
-    await page.getByPlaceholder("Goal description").fill("Handle deep links and file share payloads.");
-    await page.getByPlaceholder("Tags (comma separated)").fill("share, native");
-    await page.getByRole("button", { name: "Add Goal" }).click();
-    await expect(page.getByText("Stabilize share ingestion")).toBeVisible();
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(
+      sidebar.getByText("Goals plugin not loaded"),
+    ).toBeVisible();
+  });
 
-    // Edit goal
-    const goalsPanel = page.locator("section", { hasText: /Goals \(/ }).first();
-    const goalRow = goalsPanel.locator("div", { hasText: "Stabilize share ingestion" }).first();
-    await goalRow.getByRole("button", { name: "edit" }).first().click();
-    await page.getByPlaceholder("Goal description").fill("Desktop + mobile parity for share targets.");
-    await page.getByRole("button", { name: "Save Goal" }).click();
-    await expect(page.getByText("Desktop + mobile parity for share targets.")).toBeVisible();
+  test("shows tasks-plugin-not-loaded warning when todosAvailable is false", async ({ page }) => {
+    await mockApi(page, { agentState: "running", todosAvailable: false });
+    await page.goto("/chat");
 
-    // Quick todo
-    await page.getByPlaceholder("Todo name").fill("Verify share payload in chat");
-    await page.getByPlaceholder("Todo description").fill("Confirm prompt enrichment and file chips.");
-    await page.getByRole("button", { name: "Add Todo" }).click();
-    await expect(page.getByText("Verify share payload in chat")).toBeVisible();
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(
+      sidebar.getByText("Tasks plugin not loaded"),
+    ).toBeVisible();
+  });
+
+  test("shows both plugin warnings when neither is available", async ({ page }) => {
+    await mockApi(page, {
+      agentState: "running",
+      goalsAvailable: false,
+      todosAvailable: false,
+    });
+    await page.goto("/chat");
+
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(sidebar.getByText("Goals plugin not loaded")).toBeVisible();
+    await expect(sidebar.getByText("Tasks plugin not loaded")).toBeVisible();
+  });
+
+  test("sidebar is read-only (no add forms)", async ({ page }) => {
+    await mockApi(page, { agentState: "running" });
+    await page.goto("/chat");
+
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(sidebar).toBeVisible();
+
+    // Should NOT have any input fields or add buttons
+    await expect(sidebar.locator("input")).toHaveCount(0);
+    await expect(sidebar.getByRole("button", { name: "Add" })).toHaveCount(0);
+  });
+
+  test("urgent tasks show urgency indicator", async ({ page }) => {
+    await mockApi(page, { agentState: "running" });
+    await page.goto("/chat");
+
+    const sidebar = page.locator("workbench-sidebar");
+    await expect(sidebar.getByText("Urgent")).toBeVisible();
+  });
+
+  test("has a refresh button", async ({ page }) => {
+    await mockApi(page, { agentState: "running" });
+    await page.goto("/chat");
+
+    const sidebar = page.locator("workbench-sidebar");
+    const refreshBtn = sidebar.locator("button[title='Refresh']");
+    await expect(refreshBtn).toBeVisible();
   });
 });

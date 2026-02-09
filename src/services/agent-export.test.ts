@@ -483,7 +483,7 @@ describe("agent-export", () => {
 
   describe("round-trip encryption", () => {
     it("exports and imports an agent with all data preserved", async () => {
-      const { world, room, entity, memories, relationship, component, task } =
+      const { world: _world, room: _room, entity: _entity, memories, relationship: _relationship, component: _component, task: _task } =
         populateDb(sourceDb);
 
       const password = "test-password-123";

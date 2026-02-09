@@ -14,7 +14,7 @@
  *
  * NO MOCKS — all tests use real production code paths.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -31,13 +31,11 @@ import {
   ChannelType,
   logger,
   type Plugin,
-  type Service,
   type UUID,
 } from "@elizaos/core";
 import { startApiServer } from "../src/api/server.js";
 import {
   validateRuntimeContext,
-  type RuntimeContextValidationResult,
 } from "../src/api/plugin-validation.js";
 import { ensureAgentWorkspace } from "../src/providers/workspace.js";
 
@@ -236,14 +234,6 @@ function runSubprocess(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Typed AutonomyService interface
-// ---------------------------------------------------------------------------
-
-interface AutonomyServiceLike extends Service {
-  performAutonomousThink(): Promise<void>;
-  setLoopInterval(ms: number): void;
-}
 
 // ===================================================================
 //  1. FRESH INSTALL SIMULATION
@@ -603,7 +593,7 @@ describe("Long-Running Session Simulation", () => {
 
   it("server stays healthy after 100 sequential status requests", async () => {
     for (let i = 0; i < 100; i++) {
-      const { status, data } = await http$(server!.port, "GET", "/api/status");
+      const { status, data } = await http$(server?.port, "GET", "/api/status");
       expect(status).toBe(200);
       expect(typeof data.agentName).toBe("string");
     }
@@ -623,7 +613,7 @@ describe("Long-Running Session Simulation", () => {
     // Run 50 requests cycling through all endpoints
     for (let i = 0; i < 50; i++) {
       const [method, path] = endpoints[i % endpoints.length];
-      const { status } = await http$(server!.port, method, path);
+      const { status } = await http$(server?.port, method, path);
       expect(status).toBe(200);
     }
   }, 60_000);
@@ -631,20 +621,20 @@ describe("Long-Running Session Simulation", () => {
   it("state machine remains consistent after rapid state transitions", async () => {
     // Rapidly cycle through states
     for (let cycle = 0; cycle < 5; cycle++) {
-      await http$(server!.port, "POST", "/api/agent/start");
-      const s1 = await http$(server!.port, "GET", "/api/status");
+      await http$(server?.port, "POST", "/api/agent/start");
+      const s1 = await http$(server?.port, "GET", "/api/status");
       expect(s1.data.state).toBe("running");
 
-      await http$(server!.port, "POST", "/api/agent/pause");
-      const s2 = await http$(server!.port, "GET", "/api/status");
+      await http$(server?.port, "POST", "/api/agent/pause");
+      const s2 = await http$(server?.port, "GET", "/api/status");
       expect(s2.data.state).toBe("paused");
 
-      await http$(server!.port, "POST", "/api/agent/resume");
-      const s3 = await http$(server!.port, "GET", "/api/status");
+      await http$(server?.port, "POST", "/api/agent/resume");
+      const s3 = await http$(server?.port, "GET", "/api/status");
       expect(s3.data.state).toBe("running");
 
-      await http$(server!.port, "POST", "/api/agent/stop");
-      const s4 = await http$(server!.port, "GET", "/api/status");
+      await http$(server?.port, "POST", "/api/agent/stop");
+      const s4 = await http$(server?.port, "GET", "/api/status");
       expect(s4.data.state).toBe("stopped");
     }
   }, 30_000);
@@ -652,11 +642,11 @@ describe("Long-Running Session Simulation", () => {
   it("log buffer grows without memory leak patterns (bounded size)", async () => {
     // Generate activity by toggling states
     for (let i = 0; i < 20; i++) {
-      await http$(server!.port, "POST", "/api/agent/start");
-      await http$(server!.port, "POST", "/api/agent/stop");
+      await http$(server?.port, "POST", "/api/agent/start");
+      await http$(server?.port, "POST", "/api/agent/stop");
     }
 
-    const { data } = await http$(server!.port, "GET", "/api/logs");
+    const { data } = await http$(server?.port, "GET", "/api/logs");
     const entries = data.entries as Array<Record<string, unknown>>;
 
     // Log buffer should be bounded (not growing infinitely)
@@ -1234,7 +1224,7 @@ describe("Runtime Integration (with model provider)", () => {
 
   it.skipIf(!hasModelProvider)("runtime initializes with all plugins", () => {
     expect(initialized).toBe(true);
-    expect(runtime!.plugins.length).toBeGreaterThanOrEqual(5);
+    expect(runtime?.plugins.length).toBeGreaterThanOrEqual(5);
   });
 
   it.skipIf(!hasModelProvider)(
@@ -1247,7 +1237,7 @@ describe("Runtime Integration (with model provider)", () => {
       for (let attempt = 0; attempt < 3 && !text; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
         try {
-          const result = await runtime!.generateText(
+          const result = await runtime?.generateText(
             "Say 'validation ok' exactly.",
             { maxTokens: 256 },
           );
@@ -1281,7 +1271,7 @@ describe("Runtime Integration (with model provider)", () => {
         },
       });
       let resp = "";
-      await runtime!.messageService!.handleMessage(runtime!, msg, async (c) => {
+      await runtime?.messageService?.handleMessage(runtime, msg, async (c) => {
         if (c?.text) resp += c.text;
         return [];
       });
@@ -1310,8 +1300,8 @@ describe("Runtime Integration (with model provider)", () => {
           content: { text, source: "test", channelType: ChannelType.DM },
         });
         lastResponse = "";
-        await runtime!.messageService!.handleMessage(
-          runtime!,
+        await runtime?.messageService?.handleMessage(
+          runtime,
           msg,
           async (c) => {
             if (c?.text) lastResponse += c.text;
@@ -1343,7 +1333,7 @@ describe("Runtime Integration (with model provider)", () => {
 
       const results = await Promise.all(
         prompts.map((text) =>
-          http$(server!.port, "POST", "/api/chat", { text }, 60_000),
+          http$(server?.port, "POST", "/api/chat", { text }, 60_000),
         ),
       );
 
@@ -1358,7 +1348,7 @@ describe("Runtime Integration (with model provider)", () => {
   it.skipIf(!hasModelProvider)(
     "API server status reflects runtime state",
     async () => {
-      const { status, data } = await http$(server!.port, "GET", "/api/status");
+      const { status, data } = await http$(server?.port, "GET", "/api/status");
       expect(status).toBe(200);
       expect(data.state).toBe("running");
       expect(typeof data.startedAt).toBe("number");

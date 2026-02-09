@@ -23,6 +23,10 @@ export interface MockApiOptions {
     birdeyeKeySet?: boolean;
   } | null;
   skillsMarketplaceSearchError?: string | null;
+  /** Whether the goals plugin is available. Defaults to true. */
+  goalsAvailable?: boolean;
+  /** Whether the todos plugin is available. Defaults to true. */
+  todosAvailable?: boolean;
 }
 
 export interface MockPlugin {
@@ -494,7 +498,11 @@ export async function mockApi(page: Page, opts: MockApiOptions = {}): Promise<vo
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(workbenchState),
+      body: JSON.stringify({
+        ...workbenchState,
+        goalsAvailable: opts.goalsAvailable ?? true,
+        todosAvailable: opts.todosAvailable ?? true,
+      }),
     });
   });
 
@@ -711,7 +719,7 @@ export async function mockApi(page: Page, opts: MockApiOptions = {}): Promise<vo
     }
   });
 
-  // Chat (REST)
+  // Chat (REST — legacy)
   await page.route("**/api/chat", async (route: Route) => {
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON() as { text?: string };
@@ -720,6 +728,129 @@ export async function mockApi(page: Page, opts: MockApiOptions = {}): Promise<vo
         body: JSON.stringify({ text: `I received: "${body?.text ?? ""}"`, agentName }),
       });
     }
+  });
+
+  // Conversations
+  interface ConvMeta { id: string; title: string; roomId: string; createdAt: string; updatedAt: string }
+  interface ConvMsg { id: string; role: string; text: string; timestamp: number }
+  const conversations: ConvMeta[] = [];
+  const conversationMessages = new Map<string, ConvMsg[]>();
+  let convCounter = 0;
+
+  await page.route("**/api/conversations", async (route: Route) => {
+    if (route.request().method() === "GET") {
+      const sorted = [...conversations].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
+      await route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ conversations: sorted }),
+      });
+      return;
+    }
+    if (route.request().method() === "POST") {
+      convCounter++;
+      const body = route.request().postDataJSON() as { title?: string };
+      const id = `conv-${convCounter}`;
+      const now = new Date().toISOString();
+      const conv: ConvMeta = {
+        id,
+        title: body?.title?.trim() || "New Chat",
+        roomId: `room-${id}`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      conversations.push(conv);
+      conversationMessages.set(id, []);
+      await route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ conversation: conv }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("**/api/conversations/*/messages", async (route: Route) => {
+    const urlParts = route.request().url().split("/");
+    const msgsIdx = urlParts.indexOf("messages");
+    const convId = msgsIdx > 0 ? decodeURIComponent(urlParts[msgsIdx - 1]) : "";
+    const conv = conversations.find((c) => c.id === convId);
+
+    if (!conv) {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Not found" }) });
+      return;
+    }
+
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ messages: conversationMessages.get(convId) ?? [] }),
+      });
+      return;
+    }
+
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { text?: string };
+      const msgs = conversationMessages.get(convId) ?? [];
+      msgs.push({
+        id: `msg-${Date.now()}-u`,
+        role: "user",
+        text: body?.text ?? "",
+        timestamp: Date.now(),
+      });
+      msgs.push({
+        id: `msg-${Date.now()}-a`,
+        role: "assistant",
+        text: `I received: "${body?.text ?? ""}"`,
+        timestamp: Date.now() + 1,
+      });
+      conversationMessages.set(convId, msgs);
+      conv.updatedAt = new Date().toISOString();
+      await route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ text: `I received: "${body?.text ?? ""}"`, agentName }),
+      });
+      return;
+    }
+
+    await route.fallback();
+  });
+
+  await page.route(/\/api\/conversations\/[^/]+$/, async (route: Route) => {
+    const urlParts = route.request().url().split("/");
+    const convId = decodeURIComponent(urlParts[urlParts.length - 1].split("?")[0]);
+
+    if (route.request().method() === "PATCH") {
+      const conv = conversations.find((c) => c.id === convId);
+      if (conv) {
+        const body = route.request().postDataJSON() as { title?: string };
+        if (body?.title?.trim()) {
+          conv.title = body.title.trim();
+          conv.updatedAt = new Date().toISOString();
+        }
+        await route.fulfill({
+          status: 200, contentType: "application/json",
+          body: JSON.stringify({ conversation: conv }),
+        });
+      } else {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: "Not found" }) });
+      }
+      return;
+    }
+
+    if (route.request().method() === "DELETE") {
+      const idx = conversations.findIndex((c) => c.id === convId);
+      if (idx >= 0) conversations.splice(idx, 1);
+      conversationMessages.delete(convId);
+      await route.fulfill({
+        status: 200, contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+      return;
+    }
+
+    await route.fallback();
   });
 
   // Plugins

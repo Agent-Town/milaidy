@@ -45,7 +45,7 @@ function createErrorFilter(dest) {
         !SUPPRESS_RE.test(line) &&
         !SUPPRESS_UNSTRUCTURED_RE.test(line)
       ) {
-        dest.write(line + "\n");
+        dest.write(`${line}\n`);
       }
     }
   };

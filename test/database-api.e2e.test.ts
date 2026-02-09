@@ -127,11 +127,11 @@ describe("Database API E2E (no runtime)", () => {
 
   describe("PUT /api/database/config", () => {
     // Capture original config to restore after each test
-    let originalConfig: Record<string, unknown>;
+    let _originalConfig: Record<string, unknown>;
 
     beforeAll(async () => {
       const { data } = await req(port, "GET", "/api/database/config");
-      originalConfig = data;
+      _originalConfig = data;
     });
 
     afterAll(async () => {

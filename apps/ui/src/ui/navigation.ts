@@ -2,25 +2,25 @@
  * Navigation — tabs + onboarding.
  */
 
-export type Tab = "chat" | "apps" | "inventory" | "plugins" | "skills" | "database" | "config" | "logs" | "workbench";
+export type Tab = "chat" | "apps" | "game" | "inventory" | "plugins" | "skills" | "database" | "config" | "logs";
 
 export const TAB_GROUPS = [
   { label: "Chat", tabs: ["chat"] as Tab[] },
   { label: "Play", tabs: ["apps"] as Tab[] },
-  { label: "Manage", tabs: ["inventory", "plugins", "skills", "workbench", "database"] as Tab[] },
+  { label: "Manage", tabs: ["inventory", "plugins", "skills", "database"] as Tab[] },
   { label: "Settings", tabs: ["config", "logs"] as Tab[] },
 ] as const;
 
 const TAB_PATHS: Record<Tab, string> = {
   chat: "/chat",
   apps: "/apps",
+  game: "/game",
   inventory: "/inventory",
   plugins: "/plugins",
   skills: "/skills",
   database: "/database",
   config: "/config",
   logs: "/logs",
-  workbench: "/workbench",
 };
 
 const PATH_TO_TAB = new Map(
@@ -67,13 +67,13 @@ export function titleForTab(tab: Tab): string {
   switch (tab) {
     case "chat": return "Chat";
     case "apps": return "Apps";
+    case "game": return "Game";
     case "inventory": return "Inventory";
     case "plugins": return "Plugins";
     case "skills": return "Skills";
     case "database": return "Database";
     case "config": return "Config";
     case "logs": return "Logs";
-    case "workbench": return "Workbench";
     default: return "Milaidy";
   }
 }
@@ -82,13 +82,13 @@ export function subtitleForTab(tab: Tab): string {
   switch (tab) {
     case "chat": return "Talk to your agent.";
     case "apps": return "Browse, install, and launch apps and plugins from the registry.";
+    case "game": return "Watching your agent play.";
     case "inventory": return "Tokens and NFTs across all wallets.";
     case "plugins": return "Manage plugins and integrations.";
     case "skills": return "View available skills.";
     case "database": return "Browse, edit, and configure your database.";
     case "config": return "Agent settings and configuration.";
     case "logs": return "View agent logs.";
-    case "workbench": return "Goals, tasks, and agent workbench.";
     default: return "";
   }
 }

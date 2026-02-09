@@ -160,11 +160,11 @@ describe.skipIf(!canRun)("Wallet live E2E — real keys, real APIs", () => {
     } | null;
 
     expect(evm).not.toBeNull();
-    expect(evm!.address.startsWith("0x")).toBe(true);
-    expect(evm!.chains.length).toBe(5); // All 5 chains attempted
+    expect(evm?.address.startsWith("0x")).toBe(true);
+    expect(evm?.chains.length).toBe(5); // All 5 chains attempted
 
     // At least Ethereum mainnet should succeed (the key has it enabled)
-    const ethChain = evm!.chains.find((c) => c.chain === "Ethereum");
+    const ethChain = evm?.chains.find((c) => c.chain === "Ethereum");
     expect(ethChain).toBeDefined();
 
     if (ethChain && !ethChain.error) {
@@ -182,7 +182,7 @@ describe.skipIf(!canRun)("Wallet live E2E — real keys, real APIs", () => {
     }
 
     // Log which chains succeeded vs failed
-    for (const chain of evm!.chains) {
+    for (const chain of evm?.chains ?? []) {
       if (chain.error) {
         console.log(`  ${chain.chain}: FAILED — ${chain.error.slice(0, 80)}`);
       } else {
@@ -299,19 +299,19 @@ describe.skipIf(!canRun)("Wallet live E2E — real keys, real APIs", () => {
     expect(solExport).not.toBeNull();
 
     // Exported address matches derived address
-    expect(evmExport!.address).toBe(addrs.evmAddress);
-    expect(solExport!.address).toBe(addrs.solanaAddress);
+    expect(evmExport?.address).toBe(addrs.evmAddress);
+    expect(solExport?.address).toBe(addrs.solanaAddress);
 
     // Exported key matches process.env
-    expect(evmExport!.privateKey).toBe(process.env.EVM_PRIVATE_KEY);
-    expect(solExport!.privateKey).toBe(process.env.SOLANA_PRIVATE_KEY);
+    expect(evmExport?.privateKey).toBe(process.env.EVM_PRIVATE_KEY);
+    expect(solExport?.privateKey).toBe(process.env.SOLANA_PRIVATE_KEY);
 
     // Re-derive from exported key to verify it's the same address
     const { deriveEvmAddress, deriveSolanaAddress } = await import(
       "../src/api/wallet.js"
     );
-    expect(deriveEvmAddress(evmExport!.privateKey)).toBe(addrs.evmAddress);
-    expect(deriveSolanaAddress(solExport!.privateKey)).toBe(
+    expect(deriveEvmAddress(evmExport?.privateKey)).toBe(addrs.evmAddress);
+    expect(deriveSolanaAddress(solExport?.privateKey)).toBe(
       addrs.solanaAddress,
     );
   });
