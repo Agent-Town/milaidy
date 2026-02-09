@@ -891,9 +891,9 @@ describe("Version Skew Detection (issue #10)", () => {
     for (const name of affectedPlugins) {
       const ver = pkg.dependencies[name];
       expect(ver).toBeDefined();
-      // Must be pinned (not "next")
+      // Must be pinned to specific alpha version (not "next")
       expect(ver).not.toBe("next");
-      expect(ver).toMatch(/^\d+\.\d+\.\d+/);
+      expect(ver).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
     }
   });
 

@@ -366,14 +366,14 @@ describe("Package.json version pinning (issue #10)", () => {
     for (const plugin of affectedPlugins) {
       const version = pkg.dependencies[plugin];
       expect(version).toBeDefined();
-      // Must NOT be "next" (which resolves to alpha.4 and breaks)
+      // Must be pinned to a specific version (not "next")
       expect(version).not.toBe("next");
-      // Should be pinned to a specific version (alpha.3 or compatible)
-      expect(version).toMatch(/^\d+\.\d+\.\d+/);
+      // Should be pinned to latest stable alpha version
+      expect(version).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
     }
   });
 
-  it("core is still on next dist-tag (the plugins are pinned, not core)", async () => {
+  it("core is pinned to specific alpha version", async () => {
     const { readFileSync } = await import("node:fs");
     const { resolve } = await import("node:path");
     const pkgPath = resolve(import.meta.dirname, "../../package.json");
@@ -381,12 +381,15 @@ describe("Package.json version pinning (issue #10)", () => {
       dependencies: Record<string, string>;
     };
 
-    // Core should remain on "next" — only the affected plugins are pinned
-    expect(pkg.dependencies["@elizaos/core"]).toBe("next");
+    // Core should be pinned to a specific alpha version (not "next")
+    const coreVersion = pkg.dependencies["@elizaos/core"];
+    expect(coreVersion).toBeDefined();
+    expect(coreVersion).not.toBe("next");
+    expect(coreVersion).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
   });
 
-  it("pinned versions satisfy core@alpha.3 compatibility", () => {
-    // The pinned version (alpha.3) should be <= the core version (alpha.3).
+  it("pinned versions are compatible with each other", () => {
+    // The pinned plugin versions should be compatible with the pinned core version.
     // This means the plugins won't import symbols that don't exist in core.
     const pinnedVersion = "2.0.0-alpha.3";
     const coreVersion = "2.0.0-alpha.3";
