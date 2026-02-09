@@ -887,11 +887,32 @@ const SENSITIVE_KEY_RE =
   /token|password|secret|api.?key|private.?key|seed.?phrase|authorization|connection.?string|credential/i;
 
 /**
+ * Replace any non-empty value with "[REDACTED]".  For arrays, each string
+ * element is individually redacted; for objects, all string leaves are
+ * redacted.  Non-string primitives (booleans, numbers) are replaced with
+ * the string "[REDACTED]" to avoid leaking e.g. numeric PINs.
+ */
+function redactValue(val: unknown): unknown {
+  if (val === null || val === undefined) return val;
+  if (typeof val === "string") return val.length > 0 ? "[REDACTED]" : "";
+  if (typeof val === "number" || typeof val === "boolean") return "[REDACTED]";
+  if (Array.isArray(val)) return val.map(redactValue);
+  if (typeof val === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+      out[k] = redactValue(v);
+    }
+    return out;
+  }
+  return "[REDACTED]";
+}
+
+/**
  * Recursively walk a JSON-safe value.  For every object property whose key
- * matches SENSITIVE_KEY_RE, replace its string value with "[REDACTED]".
- * Arrays and nested objects are traversed; primitives with non-sensitive
- * keys are left untouched.  Returns a deep copy — the original is never
- * mutated.
+ * matches SENSITIVE_KEY_RE, redact the **entire value** regardless of type
+ * (string, array, nested object).  This prevents leaks when secrets are
+ * stored as arrays (e.g. `apiKeys: ["sk-1","sk-2"]`) or objects.
+ * Returns a deep copy — the original is never mutated.
  */
 function redactDeep(val: unknown): unknown {
   if (val === null || val === undefined) return val;
@@ -899,8 +920,8 @@ function redactDeep(val: unknown): unknown {
   if (typeof val === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(val as Record<string, unknown>)) {
-      if (SENSITIVE_KEY_RE.test(key) && typeof child === "string") {
-        out[key] = child.length > 0 ? "[REDACTED]" : "";
+      if (SENSITIVE_KEY_RE.test(key)) {
+        out[key] = redactValue(child);
       } else {
         out[key] = redactDeep(child);
       }
