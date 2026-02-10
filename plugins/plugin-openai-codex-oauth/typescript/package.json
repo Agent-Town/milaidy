@@ -1,0 +1,58 @@
+{
+  "name": "@milaidy/plugin-openai-codex-oauth",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsdown --config tsdown.config.ts",
+    "codex:login": "node scripts/codex-login.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@elizaos/core": "next",
+    "@mariozechner/pi-ai": "0.49.3"
+  },
+  "devDependencies": {
+    "tsdown": "^0.20.1",
+    "vitest": "^4.0.18"
+  },
+  "agentConfig": {
+    "pluginParameters": {
+      "CODEX_OAUTH_ENABLED": {
+        "type": "boolean",
+        "description": "Enable OpenAI Codex OAuth provider (text only).",
+        "required": false,
+        "default": false,
+        "sensitive": false
+      },
+      "CODEX_OAUTH_MODEL": {
+        "type": "string",
+        "description": "Default Codex model id when using this provider (e.g. gpt-5.3-codex).",
+        "required": false,
+        "default": "gpt-5.3-codex",
+        "sensitive": false
+      },
+      "CODEX_OAUTH_CALLBACK_PORT": {
+        "type": "number",
+        "description": "Local callback port for Codex OAuth (default 1455).",
+        "required": false,
+        "default": 1455,
+        "sensitive": false
+      },
+      "CODEX_OAUTH_PROVIDE_TEXT_DELEGATES": {
+        "type": "boolean",
+        "description": "Register stub TEXT_SMALL/TEXT_LARGE delegates if missing (for bootstrap).",
+        "required": false,
+        "default": false,
+        "sensitive": false
+      }
+    }
+  }
+}

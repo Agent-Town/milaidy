@@ -1,0 +1,279 @@
+import http from "node:http";
+import { URL } from "node:url";
+
+import { ModelType } from "@elizaos/core";
+import type { Plugin } from "@elizaos/core";
+import { loginOpenAICodex } from "@mariozechner/pi-ai";
+
+import {
+  deleteCodexToken,
+  readCodexToken,
+  resolveOAuthPath,
+  type CodexOAuthToken,
+  writeCodexToken,
+} from "./storage.js";
+import { hasModel, shouldEnableDelegatesFromEnv } from "./delegates.js";
+import { logRuntimeShape } from "./runtime-introspect.js";
+
+// Plugin runtime typing varies depending on how Milaidy loads it.
+// We keep it permissive and feature-detect methods we need.
+type RuntimeLike = {
+  logger?: { info?: (msg: string) => void; warn?: (msg: string) => void };
+  getModel?: (type: any) => unknown;
+  registerModel?: (type: any, model: any) => void;
+};
+
+function helpText(): string {
+  return [
+    "Codex OAuth commands:",
+    "- /codex login              Start OAuth flow (opens browser if possible)",
+    "- /codex paste <redirect_url> Paste redirect URL if callback didn't auto-complete",
+    "- /codex status             Show token status",
+    "- /codex logout             Remove stored token",
+  ].join("\n");
+}
+
+function mask(s: string): string {
+  if (!s) return "";
+  if (s.length <= 8) return "****";
+  return `${s.slice(0, 4)}...${s.slice(-4)}`;
+}
+
+function parseCodexPaste(text: string): string | null {
+  const trimmed = text.trim();
+  const m = trimmed.match(/^\/codex\s+paste\s+(.*)$/i);
+  const candidate = (m ? m[1] : trimmed).trim();
+  if (!candidate) return null;
+  if (!candidate.startsWith("http://") && !candidate.startsWith("https://")) return null;
+  return candidate;
+}
+
+async function startLocalCallbackServer(params: {
+  port: number;
+  onRedirect: (url: string) => void;
+}): Promise<{ close: () => Promise<void> }> {
+  const server = http.createServer((req, res) => {
+    try {
+      const u = new URL(req.url ?? "/", `http://127.0.0.1:${params.port}`);
+      const code = u.searchParams.get("code");
+      const state = u.searchParams.get("state");
+      if (code && state) {
+        params.onRedirect(u.toString());
+        res.statusCode = 200;
+        res.setHeader("content-type", "text/plain; charset=utf-8");
+        res.end("OK. You can close this tab and return to Milaidy.");
+        return;
+      }
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("Milaidy Codex OAuth callback server is running.");
+    } catch {
+      res.statusCode = 500;
+      res.end("error");
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(params.port, "127.0.0.1", () => resolve());
+  });
+
+  return {
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+function registerTextDelegateIfMissing(runtime: RuntimeLike, type: any, name: string) {
+  // Only-if-missing guard
+  if (hasModel(runtime, type)) {
+    runtime.logger?.info?.(`[codex-oauth] ${String(type)} already has a handler; skipping`);
+    return;
+  }
+
+  // Minimal stub model: never throws.
+  if (typeof runtime.registerModel !== "function") {
+    runtime.logger?.warn?.("[codex-oauth] runtime.registerModel is not available; cannot provide TEXT_* delegates");
+    return;
+  }
+
+  runtime.registerModel(type as any, {
+    name,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    generateText: async (_ctx: any) => {
+      const tok = readCodexToken();
+      if (!tok) {
+        return {
+          text:
+            "[codex-oauth] not logged in yet. run /codex login (or /codex paste <redirect_url>).",
+        };
+      }
+      // Once logged in, we still return a stub until we wire real calls.
+      return {
+        text: "[codex-oauth] logged in (token present).",
+      };
+    },
+  } as any);
+
+  runtime.logger?.info?.(`[codex-oauth] registered ${String(type)} stub model (${name})`);
+}
+
+export const plugin: Plugin = {
+  name: "openai-codex-oauth",
+  description: "OpenAI Codex OAuth (subscription) login + optional text delegates.",
+
+  init: async (runtime: RuntimeLike) => {
+    logRuntimeShape(runtime);
+
+    // Optional: provide TEXT_SMALL/TEXT_LARGE handlers only when explicitly enabled.
+    const cfg = shouldEnableDelegatesFromEnv();
+    if (!cfg.enabled) return;
+
+    registerTextDelegateIfMissing(runtime, ModelType.TEXT_SMALL, "codex-oauth-text-small");
+    registerTextDelegateIfMissing(runtime, ModelType.TEXT_LARGE, "codex-oauth-text-large");
+  },
+
+  actions: [
+    {
+      name: "codex_oauth_command_router",
+      description: "Routes /codex commands (login/paste/status/logout).",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      validate: async (_runtime: any, message: any) => {
+        const text = String(message?.content?.text ?? "");
+        return /^\/codex(\s|$)/i.test(text);
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      handler: async (runtime: any, message: any, _state: any, _options: any, callback: any) => {
+        const text = String(message?.content?.text ?? "").trim();
+
+        const send = async (t: string) => {
+          if (typeof callback === "function") {
+            await callback({ text: t });
+          }
+        };
+
+        if (/^\/codex\s*$/i.test(text) || /^\/codex\s+help$/i.test(text)) {
+          await send(helpText());
+          return;
+        }
+
+        if (/^\/codex\s+status$/i.test(text)) {
+          const tok = readCodexToken();
+          await send(
+            tok
+              ? [
+                  "Codex OAuth: configured",
+                  `- oauthPath: ${resolveOAuthPath()}`,
+                  `- access_token: ${mask(tok.access_token)}`,
+                  `- refresh_token: ${mask(tok.refresh_token)}`,
+                  `- expires_in: ${tok.expires_in}s`,
+                  tok.obtained_at ? `- obtained_at: ${tok.obtained_at}` : "- obtained_at: (unknown)",
+                ].join("\n")
+              : [
+                  "Codex OAuth: not configured",
+                  `- oauthPath: ${resolveOAuthPath()}`,
+                  "Run: /codex login",
+                ].join("\n"),
+          );
+          return;
+        }
+
+        if (/^\/codex\s+logout$/i.test(text)) {
+          deleteCodexToken();
+          await send("Codex OAuth token removed.");
+          return;
+        }
+
+        const paste = parseCodexPaste(text);
+        if (paste) {
+          const creds = await loginOpenAICodex({
+            onAuth: async () => paste,
+            onPrompt: async (msg: string) => {
+              await send(msg);
+              return "";
+            },
+            onProgress: async (msg: string) => {
+              await send(msg);
+            },
+          });
+
+          if (creds) {
+            const token: CodexOAuthToken = {
+              ...(creds as any),
+              obtained_at: new Date().toISOString(),
+            };
+            writeCodexToken(token);
+            await send("Codex OAuth complete.");
+          } else {
+            await send("Codex OAuth did not return credentials.");
+          }
+          return;
+        }
+
+        if (/^\/codex\s+login$/i.test(text)) {
+          const port = Number(process.env.CODEX_OAUTH_CALLBACK_PORT ?? 1455);
+          let redirectUrl: string | null = null;
+
+          let closeServer: (() => Promise<void>) | null = null;
+          try {
+            const server = await startLocalCallbackServer({
+              port,
+              onRedirect: (url) => {
+                redirectUrl = url;
+              },
+            });
+            closeServer = server.close;
+          } catch (err) {
+            await send(
+              `Could not start callback server on 127.0.0.1:${port} (${err instanceof Error ? err.message : String(err)}). You can still finish by pasting the redirect URL with /codex paste <url>.`,
+            );
+          }
+
+          await send(
+            [
+              "Starting OpenAI Codex OAuth…",
+              `- callback: http://127.0.0.1:${port}/auth/callback`,
+              "If the callback doesn't auto-complete, paste the final redirect URL:",
+              "  /codex paste <redirect_url>",
+            ].join("\n"),
+          );
+
+          try {
+            const creds = await loginOpenAICodex({
+              onAuth: async () => redirectUrl ?? "",
+              onPrompt: async (msg: string) => {
+                await send(msg);
+                return "";
+              },
+              onProgress: async (msg: string) => {
+                await send(msg);
+              },
+            });
+
+            if (creds) {
+              const token: CodexOAuthToken = {
+                ...(creds as any),
+                obtained_at: new Date().toISOString(),
+              };
+              writeCodexToken(token);
+              await send("Codex OAuth complete.");
+            } else {
+              await send("If OAuth didn't finish, use /codex paste <redirect_url>.");
+            }
+          } finally {
+            if (closeServer) {
+              await closeServer();
+            }
+          }
+          return;
+        }
+
+        await send("Unknown /codex command.\n\n" + helpText());
+      },
+      examples: [],
+    },
+  ],
+};
+
+export default plugin;

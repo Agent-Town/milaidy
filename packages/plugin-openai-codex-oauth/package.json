@@ -1,0 +1,16 @@
+{
+  "name": "@milaidy/plugin-openai-codex-oauth",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "^1.0.0"
+  }
+}

@@ -197,6 +197,10 @@ const PROVIDER_PLUGIN_MAP: Readonly<Record<string, string>> = {
   XAI_API_KEY: "@elizaos/plugin-xai",
   OPENROUTER_API_KEY: "@elizaos/plugin-openrouter",
   OLLAMA_BASE_URL: "@elizaos/plugin-ollama",
+
+  // Milaidy extension: Codex OAuth provider (plugin-only implementation)
+  OPENAI_CODEX_OAUTH: "@milaidy/plugin-openai-codex-oauth",
+
   // ElizaCloud — loaded when API key is present OR cloud is explicitly enabled
   ELIZAOS_CLOUD_API_KEY: "@elizaos/plugin-elizacloud",
   ELIZAOS_CLOUD_ENABLED: "@elizaos/plugin-elizacloud",
